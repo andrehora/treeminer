@@ -2,6 +2,7 @@ from git import Repo as GitRepository
 from pydriller import Repository as PydrillerRepository
 from github import Github as GithubAPI
 from github import Auth
+from datetime import datetime
 
 
 class RepoGithubAPI:
@@ -32,29 +33,25 @@ class RepoGithubAPI:
 
 class Repo(PydrillerRepository):
 
-    _api: RepoGithubAPI = None
-    _git: GitRepository = None
+    def __init__(self, path_to_repo: str, 
+                 token_auth: str = None,
+                 since: datetime = None, to: datetime = None, 
+                 from_commit: str = None, to_commit: str = None, 
+                 from_tag: str = None, to_tag: str = None):
 
-    def set_token_auth(self, token_auth: str):
-        auth = Auth.Token(token_auth)
-        self._api = RepoGithubAPI(self.repo_full_name, auth)
-
-    @property
-    def api(self) -> RepoGithubAPI:
-        if self._api is None:
-            self._api = RepoGithubAPI(self.repo_full_name)
-        return self._api
-    
-    @property
-    def git(self):
-        if self._git is None:
-            self._git = GitRepository(self._path_to_repo)
-        return self._git
+        self.path_to_repo = path_to_repo
+        self.git = GitRepository(self.path_to_repo)
+        self._pydriller_repo = PydrillerRepository(path_to_repo=path_to_repo, since=since, to=to, from_commit=from_commit, 
+                                                   to_commit=to_commit, from_tag=from_tag, to_tag=to_tag) 
+        auth = None
+        if token_auth is not None:
+            auth = Auth.Token(token_auth)
+        self.api = RepoGithubAPI(self.repo_full_name, auth)
 
     @property
     def repo_url(self):
-        if self._is_remote(self._path_to_repo):
-            return self._path_to_repo
+        if self._is_remote(self.path_to_repo):
+            return self.path_to_repo
         return self.git.remotes.origin.url
     
     @property
@@ -68,10 +65,6 @@ class Repo(PydrillerRepository):
     @property
     def repo_full_name(self):
         return f'{self.repo_org}/{self.repo_name}'
-    
-    @property
-    def _path_to_repo(self):
-        return self._conf.get('path_to_repo')
 
     @staticmethod
     def _is_remote(repo):
@@ -84,4 +77,3 @@ print(repo.repo_full_name)
 print(repo.repo_url)
 print(repo.api.stars)
 print(repo.api.topics)
-
