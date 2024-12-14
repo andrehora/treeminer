@@ -1,9 +1,9 @@
 import logging
 from typing import Generator
 
-from git import Repo as GitRepository
+from git import Repo as GitRepository, Blob
 
-from pydriller import Repository as PydrillerRepository
+from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
 
 from github import Github as GithubAPI
@@ -39,7 +39,21 @@ class RepoGithubAPI:
         return self.repo.get_issues(**kw)
     
 class File:
-    pass
+
+    def __init__(self, git_blob: Blob):
+        self._git_blob = git_blob
+
+    @property
+    def path(self):
+        return self._git_blob.path
+
+    @property
+    def source_code(self):
+        try:
+            data = self._git_blob.data_stream.read()
+            return data.decode("utf-8", "ignore")
+        except:
+            return None
 
 class ModifiedFile(File):
     pass
@@ -54,20 +68,19 @@ class Commit:
     def hash(self) -> str:
         return self._pydriller_commit.hash
     
-    @property
-    def modified_files(self) -> list[ModifiedFile]:
+    def modified_files(self, formats: list[str] = None) -> list[ModifiedFile]:
         return self._pydriller_commit.modified_files
 
     def files(self, formats: list[str] = None) -> list[File]:
         _files = []
         for item in self._git_commit.tree.traverse():
             if item.type == "blob":
-                if formats:
+                if formats is not None:
                     for format in formats:
                         if item.path.endswith(f'.{format}'):
-                            _files.append(item.path)
+                            _files.append(File(item))
                 else:
-                    _files.append(item.path)
+                    _files.append(File(item))
         return _files
 
 
@@ -84,6 +97,7 @@ class Repo(PydrillerRepository):
         super().__init__(path_to_repo=path_to_repo, single=single, since=since, to=to, 
                          from_commit=from_commit, to_commit=to_commit, from_tag=from_tag, to_tag=to_tag, only_releases=only_releases)
         
+        self.path_to_repo = path_to_repo
         self.repo_url = self._ensure_repo_url(path_to_repo)
 
         auth = None
@@ -100,8 +114,12 @@ class Repo(PydrillerRepository):
 
         yield Commit(pydriller_commit)
 
-    def last_commit(self) -> Commit:
-        pass
+    @property
+    def lastest_commit(self) -> Commit:
+        git = PydrillerGit(self.path_to_repo)
+        pydriller_commit = git.get_head()
+        git.clear()
+        return Commit(pydriller_commit)
     
     @property
     def repo_org(self):
@@ -128,21 +146,12 @@ class Repo(PydrillerRepository):
 
 
 repo = Repo('pydriller')
-# print(repo.repo_full_name)
-# print(repo.api.stars)
+print(repo.api.stars)
 
-commits = repo.traverse_commits()
+files = repo.lastest_commit.files(['py'])
+file = files[1]
+print(file.source_code)
 
-print(len(list(commits)))
-
-for commit in commits:
-    print(len(commit.files(['py'])))
-
-
-
-
-# commit = next(repo.commits())
-# print(commit.author_date)
-
-# git = repo._pydriller_repo.git
-# print(git.get_head().hash)
+# commits = repo.traverse_commits()
+# for commit in commits:
+#     print(len(commit.files(['py'])))
