@@ -1,5 +1,8 @@
 import logging
+from pathlib import Path
 from typing import Generator
+
+import lizard
 
 from git import Repo as GitRepository, Blob
 
@@ -44,16 +47,26 @@ class File:
         self._git_blob = git_blob
 
     @property
-    def path(self):
+    def filename(self) -> str:
+        return Path(self.path).name
+
+    @property
+    def path(self) -> str:
         return self._git_blob.path
 
     @property
-    def source_code(self):
+    def source_code(self) -> str:
         try:
             data = self._git_blob.data_stream.read()
             return data.decode("utf-8", "ignore")
         except:
             return None
+    
+    @property
+    def lizard(self) -> list:
+        analysis = lizard.analyze_file.analyze_source_code(self.filename, self.source_code)
+        return analysis
+
 
 class ModifiedFile(File):
     pass
@@ -146,11 +159,15 @@ class Repo(PydrillerRepository):
 
 
 repo = Repo('pydriller')
-print(repo.api.stars)
+# print(repo.api.stars)
 
 files = repo.lastest_commit.files(['py'])
-file = files[1]
-print(file.source_code)
+file = files[3]
+
+l = file.lizard
+print(file.path)
+for f in l.function_list:
+    print(f)
 
 # commits = repo.traverse_commits()
 # for commit in commits:
