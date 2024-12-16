@@ -1,19 +1,37 @@
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Generator
 
-import lizard
-
 from git import Repo as GitRepository, Blob
 
+import lizard
 from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
 
 from github import Github as GithubAPI
 from github import Auth
-from datetime import datetime
+
+from tree_sitter import Language, Parser, Tree, Node
+import tree_sitter_python, tree_sitter_java, tree_sitter_javascript
+from lang_types import python, java, javascript
 
 logger = logging.getLogger(__name__)
+
+def traverse_tree(tree: Tree) -> Generator[Node, None, None]:
+    cursor = tree.walk()
+
+    visited_children = False
+    while True:
+        if not visited_children:
+            yield cursor.node
+            # nodes.append(cursor.node)
+            if not cursor.goto_first_child():
+                visited_children = True
+        elif cursor.goto_next_sibling():
+            visited_children = False
+        elif not cursor.goto_parent():
+            break
 
 
 class RepoGithubAPI:
@@ -45,6 +63,35 @@ class File:
 
     def __init__(self, git_blob: Blob):
         self._git_blob = git_blob
+        
+        self._detect_language()
+        lang = Language(self._lang_grammar.language())
+        parser = Parser(lang)
+        self._tree = parser.parse(bytes(self.source_code, "utf-8"))
+
+    @property
+    def classes(self) -> list[Node]:
+        return self._find_nodes_by_constructor('classes')
+
+    @property
+    def methods(self) -> list[Node]:
+        return self._find_nodes_by_constructor('methods')
+    
+    @property
+    def calls(self) -> list[Node]:
+        return self._find_nodes_by_constructor('calls')
+    
+    @property
+    def comments(self) -> list[Node]:
+        return self._find_nodes_by_constructor('comments')
+
+    @property
+    def tree(self):
+        return traverse_tree(self._tree)
+    
+    @property
+    def extension(self) -> str:
+        return Path(self.path).suffix
 
     @property
     def filename(self) -> str:
@@ -66,6 +113,27 @@ class File:
     def lizard(self) -> list:
         analysis = lizard.analyze_file.analyze_source_code(self.filename, self.source_code)
         return analysis
+    
+    def _find_nodes_by_constructor(self, element):
+        return self._find_nodes_by_types(self._lang_nodes[element])
+
+    def _find_nodes_by_types(self, node_types) -> list[Node]:
+        nodes = []
+        for node in self.tree:
+            if node.type in node_types:
+                nodes.append(node)
+        return nodes
+    
+    def _detect_language(self):
+        if self.extension == '.py':
+            self._lang_grammar = tree_sitter_python
+            self._lang_nodes = python
+        if self.extension == '.java':
+            self._lang_grammar = tree_sitter_java
+            self._lang_nodes = java
+        if self.extension == '.js':
+            self._lang_grammar = tree_sitter_javascript
+            self._lang_nodes = javascript
 
 
 class ModifiedFile(File):
@@ -84,13 +152,13 @@ class Commit:
     def modified_files(self, formats: list[str] = None) -> list[ModifiedFile]:
         return self._pydriller_commit.modified_files
 
-    def files(self, formats: list[str] = None) -> list[File]:
+    def files(self, extensions: list[str] = None) -> list[File]:
         _files = []
         for item in self._git_commit.tree.traverse():
             if item.type == "blob":
-                if formats is not None:
-                    for format in formats:
-                        if item.path.endswith(f'.{format}'):
+                if extensions is not None:
+                    for extension in extensions:
+                        if item.path.endswith(f'.{extension}'):
                             _files.append(File(item))
                 else:
                     _files.append(File(item))
@@ -113,10 +181,10 @@ class Repo(PydrillerRepository):
         self.path_to_repo = path_to_repo
         self.repo_url = self._ensure_repo_url(path_to_repo)
 
-        auth = None
-        if token_auth is not None:
-            auth = Auth.Token(token_auth)
-        self.api = RepoGithubAPI(self.repo_full_name, auth)
+        # auth = None
+        # if token_auth is not None:
+        #     auth = Auth.Token(token_auth)
+        # self.api = RepoGithubAPI(self.repo_full_name, auth)
 
     def _iter_commits(self, pydriller_commit: PydrillerCommit) -> Generator[Commit, None, None]:
         logger.info(f'Commit #{pydriller_commit.hash} in {pydriller_commit.committer_date} from {pydriller_commit.author.name}')
@@ -164,10 +232,11 @@ repo = Repo('pydriller')
 files = repo.lastest_commit.files(['py'])
 file = files[3]
 
-l = file.lizard
-print(file.path)
-for f in l.function_list:
-    print(f)
+print(len(file.classes))
+print(len(file.methods))
+print(len(file.calls))
+print(len(file.comments))
+
 
 # commits = repo.traverse_commits()
 # for commit in commits:
