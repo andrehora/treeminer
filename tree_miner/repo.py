@@ -5,33 +5,16 @@ from typing import Generator
 
 from git import Repo as GitRepository, Blob
 
-import lizard
 from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
 
 from github import Github as GithubAPI
 from github import Auth
 
-from tree_sitter import Language, Parser, Tree, Node
-import tree_sitter_python, tree_sitter_java, tree_sitter_javascript
-from lang_types import python, java, javascript
+from tree_sitter import Language, Parser, Node
+from langs import JavaScript, Java
 
 logger = logging.getLogger(__name__)
-
-def traverse_tree(tree: Tree) -> Generator[Node, None, None]:
-    cursor = tree.walk()
-
-    visited_children = False
-    while True:
-        if not visited_children:
-            yield cursor.node
-            # nodes.append(cursor.node)
-            if not cursor.goto_first_child():
-                visited_children = True
-        elif cursor.goto_next_sibling():
-            visited_children = False
-        elif not cursor.goto_parent():
-            break
 
 
 class RepoGithubAPI:
@@ -59,35 +42,76 @@ class RepoGithubAPI:
     def issues(self, **kw):
         return self.repo.get_issues(**kw)
     
+class CodeParser:
+
+    def __init__(self, source_code, tree_sitter_grammar):
+        lang_grammar = Language(tree_sitter_grammar.language())
+        parser = Parser(lang_grammar)
+        self._tree = parser.parse(bytes(source_code, "utf-8"))
+
+    @property
+    def nodes(self) -> list[Node]:
+        return self._traverse_tree()
+    
+    def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
+        nodes = []
+        for node in self.nodes:
+            if node.type in node_types:
+                nodes.append(node)
+        return nodes
+
+    def _traverse_tree(self) -> Generator[Node, None, None]:
+        cursor = self._tree.walk()
+        visited_children = False
+        while True:
+            if not visited_children:
+                yield cursor.node
+                if not cursor.goto_first_child():
+                    visited_children = True
+            elif cursor.goto_next_sibling():
+                visited_children = False
+            elif not cursor.goto_parent():
+                break
+
 class File:
+
+    _supported_languages = [Java, JavaScript]
 
     def __init__(self, git_blob: Blob):
         self._git_blob = git_blob
-        
-        self._detect_language()
-        lang = Language(self._lang_grammar.language())
-        parser = Parser(lang)
-        self._tree = parser.parse(bytes(self.source_code, "utf-8"))
+        self._lang = self.detect_file_lang()
+        self._code_parser = CodeParser(self.source_code, self._lang.tree_sitter_grammar)
+
+    def detect_file_lang(self):
+        for lang in self._supported_languages:
+            if self.extension == lang.extension:
+                return lang
+        return None
+
+
+    @property
+    def imports(self) -> list[Node]:
+        return self.find_nodes_by_types(self._lang.import_nodes)
 
     @property
     def classes(self) -> list[Node]:
-        return self._find_nodes_by_constructor('classes')
+        return self.find_nodes_by_types(self._lang.class_nodes)
 
     @property
     def methods(self) -> list[Node]:
-        return self._find_nodes_by_constructor('methods')
+        return self.find_nodes_by_types(self._lang.method_nodes)
     
     @property
     def calls(self) -> list[Node]:
-        return self._find_nodes_by_constructor('calls')
+        return self.find_nodes_by_types(self._lang.call_nodes)
     
     @property
     def comments(self) -> list[Node]:
-        return self._find_nodes_by_constructor('comments')
+        return self.find_nodes_by_types(self._lang.comment_nodes)
 
     @property
-    def tree(self):
-        return traverse_tree(self._tree)
+    def nodes(self):
+        return self._code_parser.nodes
     
     @property
     def extension(self) -> str:
@@ -108,32 +132,13 @@ class File:
             return data.decode("utf-8", "ignore")
         except:
             return None
+        
+    def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
+        return self._code_parser.find_nodes_by_types(node_types)
     
-    @property
-    def lizard(self) -> list:
-        analysis = lizard.analyze_file.analyze_source_code(self.filename, self.source_code)
-        return analysis
-    
-    def _find_nodes_by_constructor(self, element):
-        return self._find_nodes_by_types(self._lang_nodes[element])
-
-    def _find_nodes_by_types(self, node_types) -> list[Node]:
-        nodes = []
-        for node in self.tree:
-            if node.type in node_types:
-                nodes.append(node)
-        return nodes
-    
-    def _detect_language(self):
-        if self.extension == '.py':
-            self._lang_grammar = tree_sitter_python
-            self._lang_nodes = python
-        if self.extension == '.java':
-            self._lang_grammar = tree_sitter_java
-            self._lang_nodes = java
-        if self.extension == '.js':
-            self._lang_grammar = tree_sitter_javascript
-            self._lang_nodes = javascript
+    @staticmethod
+    def add_language(language):
+        File._supported_languages.append(language) 
 
 
 class ModifiedFile(File):
@@ -186,6 +191,9 @@ class Repo(PydrillerRepository):
         #     auth = Auth.Token(token_auth)
         # self.api = RepoGithubAPI(self.repo_full_name, auth)
 
+    def add_lang(self, language):
+        File.add_language(language)
+
     def _iter_commits(self, pydriller_commit: PydrillerCommit) -> Generator[Commit, None, None]:
         logger.info(f'Commit #{pydriller_commit.hash} in {pydriller_commit.committer_date} from {pydriller_commit.author.name}')
 
@@ -226,18 +234,30 @@ class Repo(PydrillerRepository):
         return repo.startswith(("git@", "https://", "http://", "git://"))
 
 
+import tree_sitter_python
+
+class Python:
+    name = 'python'
+    extension = '.py'
+    tree_sitter_grammar = tree_sitter_python
+
+    import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
+    class_nodes = ['class_definition']
+    method_nodes = ['function_definition']
+    call_nodes = ['call']
+    comment_nodes = ['comment']
+
+
 repo = Repo('pydriller')
-# print(repo.api.stars)
+repo.add_lang(Python)
 
 files = repo.lastest_commit.files(['py'])
 file = files[3]
 
+# print(file.source_code)
+print(len(file.imports))
 print(len(file.classes))
 print(len(file.methods))
 print(len(file.calls))
 print(len(file.comments))
 
-
-# commits = repo.traverse_commits()
-# for commit in commits:
-#     print(len(commit.files(['py'])))
