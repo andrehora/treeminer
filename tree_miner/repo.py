@@ -12,7 +12,7 @@ from github import Github as GithubAPI
 from github import Auth
 
 from tree_sitter import Language, Parser, Node
-from langs import JavaScript, Java
+from miners import PythonMiner, JavaScriptMiner, JavaMiner
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class CodeParser:
 
 class File:
 
-    _supported_languages = [Java, JavaScript]
+    _miners = [PythonMiner, JavaScriptMiner, JavaMiner]
 
     def __init__(self, git_blob: Blob):
         self._git_blob = git_blob
@@ -77,7 +77,7 @@ class File:
             self._code_parser = CodeParser(self.source_code, self._lang.tree_sitter_grammar)
 
     def detect_file_lang(self):
-        for lang in self._supported_languages:
+        for lang in self._miners:
             if self.extension == lang.extension:
                 return lang
         return None
@@ -108,8 +108,8 @@ class File:
             return None
     
     @staticmethod
-    def add_language(language):
-        File._supported_languages.append(language) 
+    def add_miner(miner):
+        File._miners.append(miner) 
 
 
 class ModifiedFile(File):
@@ -162,8 +162,8 @@ class Repo(PydrillerRepository):
         #     auth = Auth.Token(token_auth)
         # self.api = RepoGithubAPI(self.repo_full_name, auth)
 
-    def add_lang(self, language):
-        File.add_language(language)
+    def add_miner(self, miner):
+        File.add_miner(miner)
 
     def _iter_commits(self, pydriller_commit: PydrillerCommit) -> Generator[Commit, None, None]:
         logger.info(f'Commit #{pydriller_commit.hash} in {pydriller_commit.committer_date} from {pydriller_commit.author.name}')
@@ -205,28 +205,8 @@ class Repo(PydrillerRepository):
         return repo.startswith(("git@", "https://", "http://", "git://"))
 
 
-from langs import BaseLang
-import tree_sitter_python
-
-
-class Python(BaseLang):
-    name = 'python'
-    extension = '.py'
-    tree_sitter_grammar = tree_sitter_python
-
-    import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-    class_nodes = ['class_definition']
-    method_nodes = ['function_definition']
-    call_nodes = ['call']
-    comment_nodes = ['comment']
-
-    @property
-    def decorators(self):
-        return self.find_nodes_by_types(['decorated_definition'])
-
-
 repo = Repo('pydriller')
-repo.add_lang(Python)
+# repo.add_miner(PythonMiner)
 
 files = repo.lastest_commit.files(['py'])
 file = files[3]
