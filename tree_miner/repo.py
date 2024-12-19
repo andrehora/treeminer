@@ -52,13 +52,6 @@ class CodeParser:
     @property
     def nodes(self) -> list[Node]:
         return self._traverse_tree()
-    
-    def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
-        nodes = []
-        for node in self.nodes:
-            if node.type in node_types:
-                nodes.append(node)
-        return nodes
 
     def _traverse_tree(self) -> Generator[Node, None, None]:
         cursor = self._tree.walk()
@@ -80,38 +73,19 @@ class File:
     def __init__(self, git_blob: Blob):
         self._git_blob = git_blob
         self._lang = self.detect_file_lang()
-        self._code_parser = CodeParser(self.source_code, self._lang.tree_sitter_grammar)
+        if self._lang:
+            self._code_parser = CodeParser(self.source_code, self._lang.tree_sitter_grammar)
 
     def detect_file_lang(self):
         for lang in self._supported_languages:
             if self.extension == lang.extension:
                 return lang
         return None
-
-
-    @property
-    def imports(self) -> list[Node]:
-        return self.find_nodes_by_types(self._lang.import_nodes)
-
-    @property
-    def classes(self) -> list[Node]:
-        return self.find_nodes_by_types(self._lang.class_nodes)
-
-    @property
-    def methods(self) -> list[Node]:
-        return self.find_nodes_by_types(self._lang.method_nodes)
     
-    @property
-    def calls(self) -> list[Node]:
-        return self.find_nodes_by_types(self._lang.call_nodes)
-    
-    @property
-    def comments(self) -> list[Node]:
-        return self.find_nodes_by_types(self._lang.comment_nodes)
-
-    @property
-    def nodes(self):
-        return self._code_parser.nodes
+    def __getattr__(self, attr_name):
+        if self._lang:
+            obj = self._lang(self._code_parser.nodes)
+            return getattr(obj, attr_name)
     
     @property
     def extension(self) -> str:
@@ -132,9 +106,6 @@ class File:
             return data.decode("utf-8", "ignore")
         except:
             return None
-        
-    def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
-        return self._code_parser.find_nodes_by_types(node_types)
     
     @staticmethod
     def add_language(language):
@@ -234,9 +205,11 @@ class Repo(PydrillerRepository):
         return repo.startswith(("git@", "https://", "http://", "git://"))
 
 
+from langs import BaseLang
 import tree_sitter_python
 
-class Python:
+
+class Python(BaseLang):
     name = 'python'
     extension = '.py'
     tree_sitter_grammar = tree_sitter_python
@@ -246,6 +219,10 @@ class Python:
     method_nodes = ['function_definition']
     call_nodes = ['call']
     comment_nodes = ['comment']
+
+    @property
+    def decorators(self):
+        return self.find_nodes_by_types(['decorated_definition'])
 
 
 repo = Repo('pydriller')
@@ -260,4 +237,5 @@ print(len(file.classes))
 print(len(file.methods))
 print(len(file.calls))
 print(len(file.comments))
+print(len(file.decorators))
 

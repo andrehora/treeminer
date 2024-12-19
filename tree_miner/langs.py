@@ -1,5 +1,37 @@
 import tree_sitter_python, tree_sitter_java, tree_sitter_javascript
+from tree_sitter import Node
 
+class BaseLang:
+    
+    def __init__(self, nodes):
+        self.nodes = nodes
+
+    @property
+    def imports(self) -> list[Node]:
+        return self.find_nodes_by_types(self.import_nodes)
+
+    @property
+    def classes(self) -> list[Node]:
+        return self.find_nodes_by_types(self.class_nodes)
+
+    @property
+    def methods(self) -> list[Node]:
+        return self.find_nodes_by_types(self.method_nodes)
+    
+    @property
+    def calls(self) -> list[Node]:
+        return self.find_nodes_by_types(self.call_nodes)
+    
+    @property
+    def comments(self) -> list[Node]:
+        return self.find_nodes_by_types(self.comment_nodes)
+    
+    def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
+        nodes = []
+        for node in self.nodes:
+            if node.type in node_types:
+                nodes.append(node)
+        return nodes
 
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
 
