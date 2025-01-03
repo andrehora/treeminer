@@ -36,7 +36,7 @@ class BaseMiner:
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
 class PythonMiner(BaseMiner):
     name = 'python'
-    extension = '.py'
+    extension = 'py'
     tree_sitter_grammar = tree_sitter_python
 
     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
@@ -48,7 +48,7 @@ class PythonMiner(BaseMiner):
 # https://github.com/tree-sitter/tree-sitter-javascript/blob/master/src/node-types.json
 class JavaScriptMiner(BaseMiner):
     name = 'javascript'
-    extension = '.js'
+    extension = 'js'
     tree_sitter_grammar = tree_sitter_javascript
 
     import_nodes = ['import_statement']
@@ -61,7 +61,7 @@ class JavaScriptMiner(BaseMiner):
 # https://github.com/tree-sitter/tree-sitter-java/blob/master/src/node-types.json
 class JavaMiner(BaseMiner):
     name = 'java'
-    extension = '.java'
+    extension = 'java'
     tree_sitter_grammar = tree_sitter_java
 
     import_nodes = ['import_declaration']
@@ -69,3 +69,5 @@ class JavaMiner(BaseMiner):
     method_nodes = ['method_declaration', 'constructor_declaration', 'compact_constructor_declaration']
     call_nodes = ['method_invocation', 'object_creation_expression']
     comment_nodes = ['line_comment', 'block_comment']
+
+buildin_miners = [PythonMiner, JavaScriptMiner, JavaMiner]

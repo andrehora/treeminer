@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Generator
 
-from git import Repo as GitRepository, Blob
+from git import Repo as GitRepository, Blob as GitBlob
 
 from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
@@ -12,41 +12,16 @@ from github import Github as GithubAPI
 from github import Auth
 
 from tree_sitter import Language, Parser, Node
-from miners import PythonMiner, JavaScriptMiner, JavaMiner
+from miners import BaseMiner, buildin_miners
 
 logger = logging.getLogger(__name__)
 
-
-class RepoGithubAPI:
-
-    def __init__(self, repo_full_name: str, token_auth: Auth.Token = None):
-        api = GithubAPI(auth=token_auth)
-        self.repo = api.get_repo(repo_full_name)
-
-    @property
-    def topics(self):
-        return self.repo.get_topics()
-
-    @property
-    def stars(self):
-        return self.repo.stargazers_count
-    
-    @property
-    def forks(self):
-        return self.repo.forks_count
-    
-    @property
-    def watchers(self):
-        return self.repo.watchers_count
-    
-    def issues(self, **kw):
-        return self.repo.get_issues(**kw)
     
 class CodeParser:
 
     def __init__(self, source_code, tree_sitter_grammar):
-        lang_grammar = Language(tree_sitter_grammar.language())
-        parser = Parser(lang_grammar)
+        grammar_lang = Language(tree_sitter_grammar.language())
+        parser = Parser(grammar_lang)
         self._tree = parser.parse(bytes(source_code, "utf-8"))
 
     @property
@@ -68,32 +43,23 @@ class CodeParser:
 
 class File:
 
-    _miners = [PythonMiner, JavaScriptMiner, JavaMiner]
-
-    def __init__(self, git_blob: Blob):
+    def __init__(self, git_blob: GitBlob, miner: BaseMiner = None):
         self._git_blob = git_blob
-        self._miner = self._detect_miner()
+        self._miner = miner
         if self._miner:
             self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
 
-    def _detect_miner(self):
-        for miner in self._miners:
-            if miner.extension == self.extension:
-                return miner
-        return None
-    
-    def __getattr__(self, attr_name):
-        if self._miner:
-            obj = self._miner(self._code_parser.nodes)
-            return getattr(obj, attr_name)
-    
     @property
-    def extension(self) -> str:
-        return Path(self.path).suffix
+    def mine(self) -> BaseMiner:
+        return self._miner(self._code_parser.nodes)
 
     @property
     def filename(self) -> str:
         return Path(self.path).name
+    
+    @property
+    def extension(self) -> str:
+        return Path(self.path).suffix
 
     @property
     def path(self) -> str:
@@ -106,46 +72,102 @@ class File:
             return data.decode("utf-8", "ignore")
         except:
             return None
+
+
+class ModifiedFile:
     
-    @staticmethod
-    def add_miner(miner):
-        # Insert miner at first position to get priority
-        File._miners.insert(0, miner) 
+    def __init__(self, pd_modified_file: PydrillerModifiedFile, miner: BaseMiner = None):
+        self._pd_modified_file = pd_modified_file
+        self._miner = miner
+        if self._miner:
+            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
 
-
-class ModifiedFile(File):
-    pass
+    @property
+    def mine(self) -> BaseMiner:
+        return self._miner(self._code_parser.nodes)
+    
+    @property
+    def filename(self) -> str:
+        return self._pd_modified_file.filename
+    
+    @property
+    def extension(self) -> str:
+        return Path(self.filename).suffix
+    
+    @property
+    def new_path(self) -> str:
+        return self._pd_modified_file.new_path
+    
+    @property
+    def old_path(self) -> str:
+        return self._pd_modified_file.old_path
+    
+    @property
+    def change_type(self) -> str:
+        return self._pd_modified_file.change_type
+    
+    @property
+    def info(self) -> PydrillerModifiedFile:
+        return self._pd_modified_file
     
 class Commit:
 
-    def __init__(self, pydriller_commit: PydrillerCommit):
-        self._pydriller_commit = pydriller_commit
-        self._git_commit = self._pydriller_commit._c_object
+    def __init__(self, pd_commit: PydrillerCommit, miners: list[BaseMiner]):
+        self._pd_commit = pd_commit
+        self._git_commit = self._pd_commit._c_object
+        self._miners = miners
 
     @property
     def hash(self) -> str:
-        return self._pydriller_commit.hash
+        return self._pd_commit.hash
     
-    def modified_files(self, formats: list[str] = None) -> list[ModifiedFile]:
-        return self._pydriller_commit.modified_files
+    @property
+    def msg(self) -> str:
+        return self._pd_commit.msg
 
-    def files(self, extensions: list[str] = None) -> list[File]:
+    @property
+    def info(self) -> PydrillerCommit:
+        return self._pd_commit
+    
+    def modified_files(self, extensions: list[str] = None) -> list[ModifiedFile]:
+        _modified_files = []
+        for modified_file in self._pd_commit.modified_files:
+            filename = modified_file.filename
+            if extensions is not None:
+                for extension in extensions:
+                    if filename.endswith(extension):
+                        miner = self._detect_file_miner(filename)
+                        _modified_files.append(ModifiedFile(modified_file, miner))
+            else:
+                miner = self._detect_file_miner(filename)
+                _modified_files.append(ModifiedFile(modified_file, miner))
+        return _modified_files
+
+    def all_files(self, extensions: list[str] = None) -> list[File]:
         _files = []
         for item in self._git_commit.tree.traverse():
             if item.type == "blob":
+                filename = item.path
                 if extensions is not None:
                     for extension in extensions:
-                        if item.path.endswith(f'.{extension}'):
-                            _files.append(File(item))
+                        if filename.endswith(extension):
+                            miner = self._detect_file_miner(filename)
+                            _files.append(File(item, miner))
                 else:
-                    _files.append(File(item))
+                    miner = self._detect_file_miner(filename)
+                    _files.append(File(item, miner))
         return _files
+    
+    def _detect_file_miner(self, filename):
+        for miner in self._miners:
+            if filename.endswith(miner.extension):
+                return miner
+        return None
 
 
 class Repo(PydrillerRepository):
 
     def __init__(self, path_to_repo: str, 
-                token_auth: str = None,
                 single: str = None,
                 since: datetime = None, to: datetime = None, 
                 from_commit: str = None, to_commit: str = None, 
@@ -154,17 +176,20 @@ class Repo(PydrillerRepository):
                 
         super().__init__(path_to_repo=path_to_repo, single=single, since=since, to=to, 
                          from_commit=from_commit, to_commit=to_commit, from_tag=from_tag, to_tag=to_tag, only_releases=only_releases)
-        
+    
         self.path_to_repo = path_to_repo
-        self.repo_url = self._ensure_repo_url(path_to_repo)
-
-        # auth = None
-        # if token_auth is not None:
-        #     auth = Auth.Token(token_auth)
-        # self.api = RepoGithubAPI(self.repo_full_name, auth)
+        self._miners = []
+        self._miners.extend(buildin_miners)
 
     def add_miner(self, miner):
-        File.add_miner(miner)
+        self._miners.insert(0, miner) 
+
+    @property
+    def lastest_commit(self) -> Commit:
+        git = PydrillerGit(self.path_to_repo)
+        pd_commit = git.get_head()
+        git.clear()
+        return Commit(pd_commit, self._miners)
 
     def _iter_commits(self, pydriller_commit: PydrillerCommit) -> Generator[Commit, None, None]:
         logger.info(f'Commit #{pydriller_commit.hash} in {pydriller_commit.committer_date} from {pydriller_commit.author.name}')
@@ -174,37 +199,6 @@ class Repo(PydrillerRepository):
             return
 
         yield Commit(pydriller_commit)
-
-    @property
-    def lastest_commit(self) -> Commit:
-        git = PydrillerGit(self.path_to_repo)
-        pydriller_commit = git.get_head()
-        git.clear()
-        return Commit(pydriller_commit)
-    
-    @property
-    def repo_org(self):
-        return self.repo_url.split('/')[-2]
-    
-    @property
-    def repo_name(self):
-        return self.repo_url.split('/')[-1]
-    
-    @property
-    def repo_full_name(self):
-        return f'{self.repo_org}/{self.repo_name}'
-    
-    def _ensure_repo_url(self, path_to_repo):
-        if self._is_remote(path_to_repo):
-            return path_to_repo
-        repo = GitRepository(path_to_repo)
-        url = repo.remotes.origin.url
-        repo.git.clear_cache()
-        return url
-
-    def _is_remote(self, repo):
-        return repo.startswith(("git@", "https://", "http://", "git://"))
-
 
 from miners import PythonMiner
 
@@ -223,18 +217,15 @@ class FastAPIMiner(PythonMiner):
             print(node)
 
 repo = Repo('full-stack-fastapi-template')
-repo.add_miner(FastAPIMiner)
-
-files = repo.lastest_commit.files(['py'])
-
+# repo.add_miner(FastAPIMiner)
+files = repo.lastest_commit.modified_files()
 for file in files:
-    if len(file.decorators) >= 1:
-        print(file.path)
-        # print(len(file.imports))
-        # print(len(file.classes))
-        # print(len(file.methods))
-        # print(len(file.calls))
-        # print(len(file.comments))
-        print(len(file.decorators))
-        print(file.endpoins)
+    print(file.filename)
+    # print(len(file.mine.imports))
+    # print(len(file.mine.classes))
+    # print(len(file.mine.methods))
+    # print(len(file.mine.calls))
+    # print(len(file.mine.comments))
+    # print(len(file.mine.decorators))
+    # print(file.mine.endpoins)
 
