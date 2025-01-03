@@ -72,19 +72,19 @@ class File:
 
     def __init__(self, git_blob: Blob):
         self._git_blob = git_blob
-        self._lang = self.detect_file_lang()
-        if self._lang:
-            self._code_parser = CodeParser(self.source_code, self._lang.tree_sitter_grammar)
+        self._miner = self._detect_miner()
+        if self._miner:
+            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
 
-    def detect_file_lang(self):
-        for lang in self._miners:
-            if self.extension == lang.extension:
-                return lang
+    def _detect_miner(self):
+        for miner in self._miners:
+            if miner.extension == self.extension:
+                return miner
         return None
     
     def __getattr__(self, attr_name):
-        if self._lang:
-            obj = self._lang(self._code_parser.nodes)
+        if self._miner:
+            obj = self._miner(self._code_parser.nodes)
             return getattr(obj, attr_name)
     
     @property
@@ -109,7 +109,8 @@ class File:
     
     @staticmethod
     def add_miner(miner):
-        File._miners.append(miner) 
+        # Insert miner at first position to get priority
+        File._miners.insert(0, miner) 
 
 
 class ModifiedFile(File):
@@ -205,17 +206,35 @@ class Repo(PydrillerRepository):
         return repo.startswith(("git@", "https://", "http://", "git://"))
 
 
-repo = Repo('pydriller')
-# repo.add_miner(PythonMiner)
+from miners import PythonMiner
+
+class FastAPIMiner(PythonMiner):
+    name = 'FastAPI'
+
+    @property
+    def decorators(self):
+        return self.find_nodes_by_types(['decorator'])
+    
+    @property
+    def endpoins(self):
+        for decorator in self.decorators:
+            print(decorator.text)
+            node = decorator.children
+            print(node)
+
+repo = Repo('full-stack-fastapi-template')
+repo.add_miner(FastAPIMiner)
 
 files = repo.lastest_commit.files(['py'])
-file = files[3]
 
-# print(file.source_code)
-print(len(file.imports))
-print(len(file.classes))
-print(len(file.methods))
-print(len(file.calls))
-print(len(file.comments))
-print(len(file.decorators))
+for file in files:
+    if len(file.decorators) >= 1:
+        print(file.path)
+        # print(len(file.imports))
+        # print(len(file.classes))
+        # print(len(file.methods))
+        # print(len(file.calls))
+        # print(len(file.comments))
+        print(len(file.decorators))
+        print(file.endpoins)
 
