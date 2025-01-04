@@ -2,16 +2,14 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Generator
+from abc import abstractmethod
 
-from git import Repo as GitRepository, Blob as GitBlob
+from git import Blob as GitBlob
 
 from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
 
-from github import Github as GithubAPI
-from github import Auth
-
-from tree_sitter import Language, Parser, Node
+from tree_sitter import Language, Parser, Node, Tree
 from miners import BaseMiner, buildin_miners
 
 logger = logging.getLogger(__name__)
@@ -19,11 +17,15 @@ logger = logging.getLogger(__name__)
     
 class CodeParser:
 
-    def __init__(self, source_code, tree_sitter_grammar):
-        grammar_lang = Language(tree_sitter_grammar.language())
-        parser = Parser(grammar_lang)
+    def __init__(self, source_code: str, tree_sitter_grammar):
+        lang_grammar = Language(tree_sitter_grammar.language())
+        parser = Parser(lang_grammar)
         self._tree = parser.parse(bytes(source_code, "utf-8"))
 
+    @property
+    def tree(self) -> Tree:
+        return self._tree
+    
     @property
     def nodes(self) -> list[Node]:
         return self._traverse_tree()
@@ -41,17 +43,37 @@ class CodeParser:
             elif not cursor.goto_parent():
                 break
 
-class File:
+class BaseFile:
 
-    def __init__(self, git_blob: GitBlob, miner: BaseMiner = None):
+    @property
+    @abstractmethod
+    def filename(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def extension(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def source_code(self) -> str:
+        pass
+
+    @property
+    def mine(self) -> BaseMiner:
+        if self._miner is None:
+            return BaseMiner()
+        return self._miner(self._code_parser.nodes)
+
+
+class File(BaseFile):
+
+    def __init__(self, git_blob: GitBlob, miner: BaseMiner | None = None):
         self._git_blob = git_blob
         self._miner = miner
         if self._miner:
             self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
-
-    @property
-    def mine(self) -> BaseMiner:
-        return self._miner(self._code_parser.nodes)
 
     @property
     def filename(self) -> str:
@@ -62,29 +84,25 @@ class File:
         return Path(self.path).suffix
 
     @property
-    def path(self) -> str:
-        return self._git_blob.path
-
-    @property
     def source_code(self) -> str:
         try:
             data = self._git_blob.data_stream.read()
             return data.decode("utf-8", "ignore")
         except:
-            return None
+            return ''
+        
+    @property
+    def path(self) -> str:
+        return self._git_blob.path
 
 
-class ModifiedFile:
+class ModifiedFile(BaseFile):
     
-    def __init__(self, pd_modified_file: PydrillerModifiedFile, miner: BaseMiner = None):
+    def __init__(self, pd_modified_file: PydrillerModifiedFile, miner: BaseMiner | None = None):
         self._pd_modified_file = pd_modified_file
         self._miner = miner
         if self._miner:
             self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
-
-    @property
-    def mine(self) -> BaseMiner:
-        return self._miner(self._code_parser.nodes)
     
     @property
     def filename(self) -> str:
@@ -93,6 +111,14 @@ class ModifiedFile:
     @property
     def extension(self) -> str:
         return Path(self.filename).suffix
+    
+    @property
+    def source_code(self) -> str:
+        return self._pd_modified_file.source_code
+    
+    @property
+    def source_code_before(self) -> str:
+        return self._pd_modified_file.source_code_before
     
     @property
     def new_path(self) -> str:
@@ -218,12 +244,12 @@ class FastAPIMiner(PythonMiner):
 
 repo = Repo('full-stack-fastapi-template')
 # repo.add_miner(FastAPIMiner)
-files = repo.lastest_commit.modified_files()
+files = repo.lastest_commit.all_files()
 for file in files:
     print(file.filename)
-    # print(len(file.mine.imports))
-    # print(len(file.mine.classes))
-    # print(len(file.mine.methods))
+    print(len(file.mine.imports))
+    print(len(file.mine.classes))
+    print(len(file.mine.methods))
     # print(len(file.mine.calls))
     # print(len(file.mine.comments))
     # print(len(file.mine.decorators))

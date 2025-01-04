@@ -2,9 +2,17 @@ import tree_sitter_python, tree_sitter_java, tree_sitter_javascript
 from tree_sitter import Node
 
 class BaseMiner:
+
+    import_nodes = []
+    class_nodes = []
+    method_nodes = []
+    call_nodes = []
+    comment_nodes = []
     
-    def __init__(self, nodes):
+    def __init__(self, nodes: list[Node] | None = None):
         self.nodes = nodes
+        if nodes is None:
+            self.nodes = []
 
     @property
     def imports(self) -> list[Node]:
@@ -32,7 +40,7 @@ class BaseMiner:
             if node.type in node_types:
                 nodes.append(node)
         return nodes
-
+    
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
 class PythonMiner(BaseMiner):
     name = 'python'
