@@ -10,9 +10,9 @@ class BaseMiner:
     call_nodes = []
     comment_nodes = []
     
-    def __init__(self, nodes: list[Node] | None = None):
-        self.nodes = nodes
-        if nodes is None:
+    def __init__(self, tree_nodes: list[Node] | None = None):
+        self.nodes = tree_nodes
+        if tree_nodes is None:
             self.nodes = []
 
     @property

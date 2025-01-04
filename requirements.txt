@@ -1,7 +1,7 @@
 tree-sitter
 gitpython
 pydriller
-PyGithub
 tree-sitter-python
 tree-sitter-javascript
 tree-sitter-java
+pytest

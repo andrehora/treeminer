@@ -27,7 +27,7 @@ class CodeParser:
         return self._tree
     
     @property
-    def nodes(self) -> list[Node]:
+    def tree_nodes(self) -> list[Node]:
         return self._traverse_tree()
 
     def _traverse_tree(self) -> Generator[Node, None, None]:
@@ -45,6 +45,17 @@ class CodeParser:
 
 class BaseFile:
 
+    def __init__(self, miner: BaseMiner | None = None):
+        self._miner = miner
+        if self._miner:
+            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
+
+    @property
+    def mine(self) -> BaseMiner:
+        if self._miner is None:
+            return BaseMiner()
+        return self._miner(self._code_parser.tree_nodes)
+
     @property
     @abstractmethod
     def filename(self) -> str:
@@ -60,20 +71,12 @@ class BaseFile:
     def source_code(self) -> str:
         pass
 
-    @property
-    def mine(self) -> BaseMiner:
-        if self._miner is None:
-            return BaseMiner()
-        return self._miner(self._code_parser.nodes)
-
 
 class File(BaseFile):
 
-    def __init__(self, git_blob: GitBlob, miner: BaseMiner | None = None):
+    def __init__(self, git_blob: GitBlob, miner: BaseMiner | None):
         self._git_blob = git_blob
-        self._miner = miner
-        if self._miner:
-            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
+        super().__init__(miner)
 
     @property
     def filename(self) -> str:
@@ -98,12 +101,10 @@ class File(BaseFile):
 
 class ModifiedFile(BaseFile):
     
-    def __init__(self, pd_modified_file: PydrillerModifiedFile, miner: BaseMiner | None = None):
+    def __init__(self, pd_modified_file: PydrillerModifiedFile, miner: BaseMiner | None):
         self._pd_modified_file = pd_modified_file
-        self._miner = miner
-        if self._miner:
-            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
-    
+        super().__init__(miner)
+
     @property
     def filename(self) -> str:
         return self._pd_modified_file.filename
@@ -114,7 +115,7 @@ class ModifiedFile(BaseFile):
     
     @property
     def source_code(self) -> str:
-        return self._pd_modified_file.source_code
+        return self._pd_modified_file.source_code or ''
     
     @property
     def source_code_before(self) -> str:
@@ -224,7 +225,7 @@ class Repo(PydrillerRepository):
             logger.info(f'Commit #{pd_commit.hash} filtered')
             return
 
-        yield Commit(pd_commit)
+        yield Commit(pd_commit, self._miners)
 
 from miners import PythonMiner
 
@@ -245,15 +246,12 @@ class FastAPIMiner(PythonMiner):
 repo = Repo('full-stack-fastapi-template')
 # repo.add_miner(FastAPIMiner)
 
-lastest_commit = repo.lastest_commit
-
-print(lastest_commit.hash)
-
-for file in lastest_commit.all_files():
-    print(file.filename)
-    print(len(file.mine.imports))
-    print(len(file.mine.classes))
-    print(len(file.mine.methods))
-    print(len(file.mine.calls))
-    print(len(file.mine.comments))
+for commit in repo.traverse_commits():
+    for file in commit.all_fileszz():
+        print(file.filename)
+        print(len(file.mine.imports))
+        print(len(file.mine.classes))
+        print(len(file.mine.methods))
+        print(len(file.mine.calls))
+        print(len(file.mine.comments))
 
