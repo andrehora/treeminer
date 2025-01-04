@@ -1,6 +1,7 @@
 import tree_sitter_python, tree_sitter_java, tree_sitter_javascript
 from tree_sitter import Node
 
+
 class BaseMiner:
 
     import_nodes = []
@@ -40,7 +41,8 @@ class BaseMiner:
             if node.type in node_types:
                 nodes.append(node)
         return nodes
-    
+
+
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
 class PythonMiner(BaseMiner):
     name = 'python'
@@ -52,6 +54,7 @@ class PythonMiner(BaseMiner):
     method_nodes = ['function_definition']
     call_nodes = ['call']
     comment_nodes = ['comment']
+
 
 # https://github.com/tree-sitter/tree-sitter-javascript/blob/master/src/node-types.json
 class JavaScriptMiner(BaseMiner):
@@ -65,6 +68,7 @@ class JavaScriptMiner(BaseMiner):
                     'arrow_function', 'generator_function', 'function_expression']
     call_nodes = ['call_expression']
     comment_nodes = ['comment']
+
 
 # https://github.com/tree-sitter/tree-sitter-java/blob/master/src/node-types.json
 class JavaMiner(BaseMiner):

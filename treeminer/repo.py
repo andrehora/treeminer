@@ -212,19 +212,19 @@ class Repo(PydrillerRepository):
 
     @property
     def lastest_commit(self) -> Commit:
-        git = PydrillerGit(self.path_to_repo)
-        pd_commit = git.get_head()
-        git.clear()
+        pd_git = PydrillerGit(self.path_to_repo)
+        pd_commit = pd_git.get_head()
+        pd_git.clear()
         return Commit(pd_commit, self._miners)
 
-    def _iter_commits(self, pydriller_commit: PydrillerCommit) -> Generator[Commit, None, None]:
-        logger.info(f'Commit #{pydriller_commit.hash} in {pydriller_commit.committer_date} from {pydriller_commit.author.name}')
+    def _iter_commits(self, pd_commit: PydrillerCommit) -> Generator[Commit, None, None]:
+        logger.info(f'Commit #{pd_commit.hash} in {pd_commit.committer_date} from {pd_commit.author.name}')
 
-        if self._conf.is_commit_filtered(pydriller_commit):
-            logger.info(f'Commit #{pydriller_commit.hash} filtered')
+        if self._conf.is_commit_filtered(pd_commit):
+            logger.info(f'Commit #{pd_commit.hash} filtered')
             return
 
-        yield Commit(pydriller_commit)
+        yield Commit(pd_commit)
 
 from miners import PythonMiner
 
@@ -244,14 +244,16 @@ class FastAPIMiner(PythonMiner):
 
 repo = Repo('full-stack-fastapi-template')
 # repo.add_miner(FastAPIMiner)
-files = repo.lastest_commit.all_files()
-for file in files:
+
+lastest_commit = repo.lastest_commit
+
+print(lastest_commit.hash)
+
+for file in lastest_commit.all_files():
     print(file.filename)
     print(len(file.mine.imports))
     print(len(file.mine.classes))
     print(len(file.mine.methods))
-    # print(len(file.mine.calls))
-    # print(len(file.mine.comments))
-    # print(len(file.mine.decorators))
-    # print(file.mine.endpoins)
+    print(len(file.mine.calls))
+    print(len(file.mine.comments))
 
