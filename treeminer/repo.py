@@ -42,7 +42,7 @@ class CodeParser:
                 visited_children = False
             elif not cursor.goto_parent():
                 break
-            
+
 
 class Parsable:
 
@@ -272,9 +272,18 @@ from miners import PythonMiner
 class FastAPIMiner(PythonMiner):
     name = 'FastAPI'
 
-    @property
-    def decorators(self):
-        return self.find_nodes_by_types(['decorator'])
+    @property    
+    def endpoints(self):
+        _endpoints = []
+        decorators = self.find_nodes_by_types(['decorator'])
+        for decorator in decorators:
+            object = self.find_descendant_node_by_field_name(decorator, 'object')
+            attribute = self.find_descendant_node_by_field_name(decorator, 'attribute')
+            arguments = self.find_descendant_node_by_field_name(decorator, 'arguments')
+            if object and attribute and arguments:
+                data = object, attribute, arguments
+                _endpoints.append(data)
+        return _endpoints
 
 
 repo = Repo('full-stack-fastapi-template')
@@ -283,5 +292,6 @@ repo.add_miner(FastAPIMiner)
 for commit in repo.commits:
     for file in commit.modified_files(['py']):
         for line in file.added_lines:
-            for node in line.mine.extras:
-                print(str(node.text))
+            for obj, attr, args in line.mine.endpoints:
+                print(obj.text, attr.text, args.text)
+                

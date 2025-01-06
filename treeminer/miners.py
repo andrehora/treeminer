@@ -59,8 +59,23 @@ class BaseMiner:
                 nodes.append(node)
         return nodes
     
-    def children_by_field_name(self, node: Node) -> list[Node]:
-        pass
+    def find_descendant_node_by_field_name(self, node: Node, name: str) -> Node | None:
+        for current_node in self.get_descendant_nodes(node):
+            target_node = current_node.child_by_field_name(name)
+            if target_node is not None:
+                return target_node
+        return None
+    
+    def get_descendant_nodes(self, node: Node) -> list[Node]:
+        descendants = []
+
+        def traverse_node(current_node):
+            descendants.append(current_node)
+            for child in current_node.children:
+                traverse_node(child)
+
+        traverse_node(node)
+        return descendants
 
 
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
