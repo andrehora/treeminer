@@ -42,11 +42,13 @@ class CodeParser:
                 visited_children = False
             elif not cursor.goto_parent():
                 break
+            
 
-class BaseFile:
+class Parsable:
 
-    def __init__(self, miner: BaseMiner | None = None):
+    def __init__(self, miner: BaseMiner | None):
         self._miner = miner
+        self._code_parser = None
         if self._miner:
             self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
 
@@ -55,16 +57,12 @@ class BaseFile:
         if self._miner is None:
             return BaseMiner()
         return self._miner(self._code_parser.tree_nodes)
-
+    
     @property
-    @abstractmethod
-    def filename(self) -> str:
-        pass
-
-    @property
-    @abstractmethod
-    def extension(self) -> str:
-        pass
+    def tree_nodes(self) -> BaseMiner:
+        if self._code_parser is None:
+            return []
+        return self._code_parser.tree_nodes
 
     @property
     @abstractmethod
@@ -72,7 +70,7 @@ class BaseFile:
         pass
 
 
-class File(BaseFile):
+class File(Parsable):
 
     def __init__(self, git_blob: GitBlob, miner: BaseMiner | None):
         self._git_blob = git_blob
@@ -99,7 +97,7 @@ class File(BaseFile):
         return self._git_blob.path
 
 
-class ModifiedFile(BaseFile):
+class ModifiedFile(Parsable):
     
     def __init__(self, pd_modified_file: PydrillerModifiedFile, miner: BaseMiner | None):
         self._pd_modified_file = pd_modified_file
@@ -137,6 +135,44 @@ class ModifiedFile(BaseFile):
     def info(self) -> PydrillerModifiedFile:
         return self._pd_modified_file
     
+    @property
+    def added_lines(self) -> list['ModifiedLine']:
+        _added_lines = []
+        for added_line in self._pd_modified_file.diff_parsed['added']:
+            source_code = added_line[1]
+            _added_lines.append(ModifiedLine(source_code, self._miner, is_added=True))
+        return _added_lines
+    
+    @property
+    def deleted_lines(self) -> list[str]:
+        _deleted_lines = []
+        for deleted_line in self._pd_modified_file.diff_parsed['deleted']:
+            source_code = deleted_line[1]
+            _deleted_lines.append(ModifiedLine(source_code, self._miner, is_deleted=True))
+        return _deleted_lines
+
+
+class ModifiedLine(Parsable):
+    
+    def __init__(self, source_code: str, miner: BaseMiner | None, is_added: bool = False, is_deleted: bool = False):
+        self._source_code = source_code
+        self._is_added = is_added
+        self._is_deleted = is_deleted
+        super().__init__(miner)
+
+    @property
+    def is_added(self) -> bool:
+        return self._is_added
+    
+    @property
+    def is_deleted(self) -> bool:
+        return self._is_deleted
+    
+    @property
+    def source_code(self) -> bool:
+        return self._source_code
+
+
 class Commit:
 
     def __init__(self, pd_commit: PydrillerCommit, miners: list[BaseMiner]):
@@ -217,6 +253,10 @@ class Repo(PydrillerRepository):
         pd_commit = pd_git.get_head()
         pd_git.clear()
         return Commit(pd_commit, self._miners)
+    
+    @property
+    def commits(self) -> Generator[Commit, None, None]:
+        return self.traverse_commits()
 
     def _iter_commits(self, pd_commit: PydrillerCommit) -> Generator[Commit, None, None]:
         logger.info(f'Commit #{pd_commit.hash} in {pd_commit.committer_date} from {pd_commit.author.name}')
@@ -235,23 +275,13 @@ class FastAPIMiner(PythonMiner):
     @property
     def decorators(self):
         return self.find_nodes_by_types(['decorator'])
-    
-    @property
-    def endpoins(self):
-        for decorator in self.decorators:
-            print(decorator.text)
-            node = decorator.children
-            print(node)
+
 
 repo = Repo('full-stack-fastapi-template')
-# repo.add_miner(FastAPIMiner)
+repo.add_miner(FastAPIMiner)
 
-for commit in repo.traverse_commits():
-    for file in commit.all_fileszz():
-        print(file.filename)
-        print(len(file.mine.imports))
-        print(len(file.mine.classes))
-        print(len(file.mine.methods))
-        print(len(file.mine.calls))
-        print(len(file.mine.comments))
-
+for commit in repo.commits:
+    for file in commit.modified_files(['py']):
+        for line in file.added_lines:
+            for node in line.mine.extras:
+                print(str(node.text))

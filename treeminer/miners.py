@@ -11,9 +11,25 @@ class BaseMiner:
     comment_nodes = []
     
     def __init__(self, tree_nodes: list[Node] | None = None):
-        self.nodes = tree_nodes
+        self.tree_nodes = tree_nodes
         if tree_nodes is None:
-            self.nodes = []
+            self.tree_nodes = []
+
+    @property
+    def errors(self) -> list[Node]:
+        return [node for node in self.tree_nodes if node.is_error]
+
+    @property
+    def missings(self) -> list[Node]:
+        return [node for node in self.tree_nodes if node.is_missing]
+    
+    @property
+    def extras(self) -> list[Node]:
+        return [node for node in self.tree_nodes if node.is_extra]
+    
+    @property
+    def named(self) -> list[Node]:
+        return [node for node in self.tree_nodes if node.is_named]
 
     @property
     def imports(self) -> list[Node]:
@@ -37,10 +53,14 @@ class BaseMiner:
     
     def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
         nodes = []
-        for node in self.nodes:
+        for node in self.tree_nodes:
+            node.child
             if node.type in node_types:
                 nodes.append(node)
         return nodes
+    
+    def children_by_field_name(self, node: Node) -> list[Node]:
+        pass
 
 
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
