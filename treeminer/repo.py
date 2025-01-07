@@ -272,17 +272,22 @@ from miners import PythonMiner
 class FastAPIMiner(PythonMiner):
     name = 'FastAPI'
 
+    endpoint_objects = ['app', 'router']
+    http_methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace']
+
     @property    
     def endpoints(self):
         _endpoints = []
-        decorators = self.find_nodes_by_types(['decorator'])
+        decorators = self.find_nodes_by_type('decorator')
         for decorator in decorators:
             object = self.find_descendant_node_by_field_name(decorator, 'object')
             attribute = self.find_descendant_node_by_field_name(decorator, 'attribute')
             arguments = self.find_descendant_node_by_field_name(decorator, 'arguments')
-            if object and attribute and arguments:
-                data = object, attribute, arguments
-                _endpoints.append(data)
+
+            if object and object.text.decode('utf-8') in self.endpoint_objects:
+                if attribute and attribute.text.decode('utf-8') in self.http_methods:
+                    data = object, attribute, arguments
+                    _endpoints.append(data)
         return _endpoints
 
 

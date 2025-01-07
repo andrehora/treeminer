@@ -51,10 +51,12 @@ class BaseMiner:
     def comments(self) -> list[Node]:
         return self.find_nodes_by_types(self.comment_nodes)
     
+    def find_nodes_by_type(self, node_type: str) -> list[Node]:
+        return self.find_nodes_by_types([node_type])
+    
     def find_nodes_by_types(self, node_types: list[str]) -> list[Node]:
         nodes = []
         for node in self.tree_nodes:
-            node.child
             if node.type in node_types:
                 nodes.append(node)
         return nodes
