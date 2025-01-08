@@ -1,5 +1,6 @@
-def test_imports(basic_python):
+def test_imports(basic_python, ext_python):
     assert len(basic_python.imports) == 0
+    assert len(ext_python.imports) == 2
 
 def test_classes(basic_python):
     assert len(basic_python.classes) == 1
