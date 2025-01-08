@@ -62,8 +62,8 @@ class BaseMiner:
         return nodes
     
     def find_descendant_node_by_field_name(self, node: Node, name: str) -> Node | None:
-        for current_node in self.get_descendant_nodes(node):
-            target_node = current_node.child_by_field_name(name)
+        for desc_node in self.get_descendant_nodes(node):
+            target_node = desc_node.child_by_field_name(name)
             if target_node is not None:
                 return target_node
         return None
@@ -100,10 +100,10 @@ class JavaScriptMiner(BaseMiner):
     tree_sitter_grammar = tree_sitter_javascript
 
     import_nodes = ['import_statement']
-    class_nodes = ['class_declaration', 'class']
-    method_nodes = ['function_declaration', 'function', 'method_definition', 'generator_function_declaration', 
+    class_nodes = ['class_declaration']
+    method_nodes = ['function_declaration', 'method_definition', 'generator_function_declaration', 
                     'arrow_function', 'generator_function', 'function_expression']
-    call_nodes = ['call_expression']
+    call_nodes = ['call_expression', 'new_expression']
     comment_nodes = ['comment']
 
 

@@ -10,7 +10,7 @@ from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
 
 from tree_sitter import Language, Parser, Node, Tree
-from miners import BaseMiner, buildin_miners
+from treeminer.miners import BaseMiner, buildin_miners
 
 logger = logging.getLogger(__name__)
 
@@ -267,36 +267,39 @@ class Repo(PydrillerRepository):
 
         yield Commit(pd_commit, self._miners)
 
-from miners import PythonMiner
+# from miners import PythonMiner
 
-class FastAPIMiner(PythonMiner):
-    name = 'FastAPI'
+# class FastAPIMiner(PythonMiner):
+#     name = 'FastAPI'
 
-    endpoint_objects = ['app', 'router']
-    http_methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace']
+#     endpoint_objects = ['app', 'router']
+#     http_methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace']
 
-    @property    
-    def endpoints(self):
-        _endpoints = []
-        decorators = self.find_nodes_by_type('decorator')
-        for decorator in decorators:
-            object = self.find_descendant_node_by_field_name(decorator, 'object')
-            attribute = self.find_descendant_node_by_field_name(decorator, 'attribute')
-            arguments = self.find_descendant_node_by_field_name(decorator, 'arguments')
+#     @property    
+#     def endpoints(self):
+#         _endpoints = []
+#         decorators = self.find_nodes_by_type('decorator')
+#         for decorator in decorators:
+#             object = self.find_descendant_node_by_field_name(decorator, 'object')
+#             attribute = self.find_descendant_node_by_field_name(decorator, 'attribute')
+#             arguments = self.find_descendant_node_by_field_name(decorator, 'arguments')
 
-            if object and object.text.decode('utf-8') in self.endpoint_objects:
-                if attribute and attribute.text.decode('utf-8') in self.http_methods:
-                    data = object, attribute, arguments
-                    _endpoints.append(data)
-        return _endpoints
+#             if object and object.text.decode('utf-8') in self.endpoint_objects:
+#                 if attribute and attribute.text.decode('utf-8') in self.http_methods:
+#                     data = object, attribute, arguments
+#                     _endpoints.append(data)
+
+#         return _endpoints
 
 
-repo = Repo('full-stack-fastapi-template')
-repo.add_miner(FastAPIMiner)
+# repo = Repo('full-stack-fastapi-template')
+# repo.add_miner(FastAPIMiner)
 
-for commit in repo.commits:
-    for file in commit.modified_files(['py']):
-        for line in file.added_lines:
-            for obj, attr, args in line.mine.endpoints:
-                print(obj.text, attr.text, args.text)
+# cont = 0
+# for commit in repo.commits:
+#     for file in commit.modified_files(['py']):
+#         for line in file.added_lines:
+#             for obj, attr, args in line.mine.endpoints:
+#                 cont += 1
+#                 print(cont, obj.text, attr.text, args.text)
                 
