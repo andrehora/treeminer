@@ -266,15 +266,3 @@ class Repo(PydrillerRepository):
             return
 
         yield Commit(pd_commit, self._miners)
-
-# repo = Repo('full-stack-fastapi-template')
-# repo.add_miner(FastAPIMiner)
-
-# cont = 0
-# for commit in repo.commits:
-#     for file in commit.modified_files(['py']):
-#         for line in file.added_lines:
-#             for obj, attr, args in line.mine.endpoints:
-#                 cont += 1
-#                 print(cont, obj.text, attr.text, args.text)
-                
