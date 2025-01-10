@@ -1,5 +1,6 @@
 from treeminer.miners import PythonMiner
 
+
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 

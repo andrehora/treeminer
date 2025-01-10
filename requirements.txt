@@ -3,5 +3,6 @@ gitpython
 pydriller
 tree-sitter-python
 tree-sitter-javascript
+tree-sitter-typescript
 tree-sitter-java
 pytest

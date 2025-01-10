@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
     
 class CodeParser:
 
-    def __init__(self, source_code: str, tree_sitter_grammar):
-        lang_grammar = Language(tree_sitter_grammar.language())
-        parser = Parser(lang_grammar)
+    def __init__(self, source_code: str, tree_sitter_language):
+        lang = Language(tree_sitter_language)
+        parser = Parser(lang)
         self._tree = parser.parse(bytes(source_code, "utf-8"))
 
     @property
@@ -50,7 +50,7 @@ class Parsable:
         self._miner = miner
         self._code_parser = None
         if self._miner:
-            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_grammar)
+            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_language)
 
     @property
     def mine(self) -> BaseMiner:
@@ -59,7 +59,7 @@ class Parsable:
         return self._miner(self._code_parser.tree_nodes)
     
     @property
-    def tree_nodes(self) -> BaseMiner:
+    def tree_nodes(self) -> list[Node]:
         if self._code_parser is None:
             return []
         return self._code_parser.tree_nodes

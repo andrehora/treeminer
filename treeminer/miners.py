@@ -1,4 +1,4 @@
-import tree_sitter_python, tree_sitter_java, tree_sitter_javascript
+import tree_sitter_python, tree_sitter_javascript, tree_sitter_java, tree_sitter_typescript
 from tree_sitter import Node
 
 
@@ -84,7 +84,7 @@ class BaseMiner:
 class PythonMiner(BaseMiner):
     name = 'python'
     extension = 'py'
-    tree_sitter_grammar = tree_sitter_python
+    tree_sitter_language = tree_sitter_python.language()
 
     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
     class_nodes = ['class_definition']
@@ -97,7 +97,7 @@ class PythonMiner(BaseMiner):
 class JavaScriptMiner(BaseMiner):
     name = 'javascript'
     extension = 'js'
-    tree_sitter_grammar = tree_sitter_javascript
+    tree_sitter_language = tree_sitter_javascript.language()
 
     import_nodes = ['import_statement']
     class_nodes = ['class_declaration']
@@ -107,11 +107,23 @@ class JavaScriptMiner(BaseMiner):
     comment_nodes = ['comment']
 
 
+# https://github.com/tree-sitter/tree-sitter-typescript/blob/master/typescript/src/node-types.json
+class TypeScriptMiner(BaseMiner):
+    name = 'typescript'
+    extension = 'ts'
+    tree_sitter_language = tree_sitter_typescript.language_typescript()
+
+    # import_nodes = ['import_declaration']
+    # class_nodes = ['class_declaration']
+    # method_nodes = ['method_declaration', 'constructor_declaration', 'compact_constructor_declaration']
+    # call_nodes = ['method_invocation', 'object_creation_expression']
+    # comment_nodes = ['line_comment', 'block_comment']
+
 # https://github.com/tree-sitter/tree-sitter-java/blob/master/src/node-types.json
 class JavaMiner(BaseMiner):
     name = 'java'
     extension = 'java'
-    tree_sitter_grammar = tree_sitter_java
+    tree_sitter_language = tree_sitter_java.language()
 
     import_nodes = ['import_declaration']
     class_nodes = ['class_declaration']
@@ -119,4 +131,4 @@ class JavaMiner(BaseMiner):
     call_nodes = ['method_invocation', 'object_creation_expression']
     comment_nodes = ['line_comment', 'block_comment']
 
-buildin_miners = [PythonMiner, JavaScriptMiner, JavaMiner]
+buildin_miners = [PythonMiner, JavaScriptMiner, TypeScriptMiner, JavaMiner]
