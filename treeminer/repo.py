@@ -247,12 +247,16 @@ class Repo(PydrillerRepository):
     def add_miner(self, miner):
         self._miners.insert(0, miner) 
 
+    # @property
+    # def lastest_commit(self) -> Commit:
+    #     pd_git = PydrillerGit(self.path_to_repo)
+    #     pd_commit = pd_git.get_head()
+    #     pd_git.clear()
+    #     return Commit(pd_commit, self._miners)
+    
     @property
     def lastest_commit(self) -> Commit:
-        pd_git = PydrillerGit(self.path_to_repo)
-        pd_commit = pd_git.get_head()
-        pd_git.clear()
-        return Commit(pd_commit, self._miners)
+        return list(self.commits)[-1]
     
     @property
     def commits(self) -> Generator[Commit, None, None]:

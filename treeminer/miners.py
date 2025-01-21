@@ -26,10 +26,6 @@ class BaseMiner:
     @property
     def extras(self) -> list[Node]:
         return [node for node in self.tree_nodes if node.is_extra]
-    
-    @property
-    def named(self) -> list[Node]:
-        return [node for node in self.tree_nodes if node.is_named]
 
     @property
     def imports(self) -> list[Node]:
@@ -61,16 +57,12 @@ class BaseMiner:
                 nodes.append(node)
         return nodes
     
-    def find_descendant_node_by_field_name(self, node: Node, name: str) -> Node | None:
-        for desc_node in self.get_descendant_nodes(node):
-            target_node = desc_node.child_by_field_name(name)
-            if target_node is not None:
-                return target_node
-        return None
+    def named_children(self, node: Node) -> list[Node]:
+        return [each for each in node.children if each.is_named]
     
-    def get_descendant_nodes(self, node: Node) -> list[Node]:
+    def descendant_nodes(self, node: Node) -> list[Node]:
         descendants = []
-
+        
         def traverse_node(current_node):
             descendants.append(current_node)
             for child in current_node.children:
@@ -78,6 +70,13 @@ class BaseMiner:
 
         traverse_node(node)
         return descendants
+    
+    def descendant_node_by_field_name(self, node: Node, name: str) -> Node | None:
+        for desc_node in self.descendant_nodes(node):
+            target_node = desc_node.child_by_field_name(name)
+            if target_node is not None:
+                return target_node
+        return None
 
 
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
