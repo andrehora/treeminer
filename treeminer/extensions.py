@@ -24,9 +24,11 @@ class EndpointDecorator:
 
 class EndpointFunction:
     
-    def __init__(self, name, parameters):
+    def __init__(self, name, parameters, return_type, is_async):
         self.name = name
         self.parameters = parameters
+        self.return_type = return_type
+        self.is_async = is_async
     
 
 class FastAPIMiner(PythonMiner):
@@ -50,10 +52,17 @@ class FastAPIMiner(PythonMiner):
 
         return result
     
-    def _create_endpoint_function(self, node):
+    def _create_endpoint_function(self, function_definition):
 
-        name = as_str(node.child_by_field_name('name').text)
-        parameters_node = node.child_by_field_name('parameters')
+        is_async = as_str(function_definition.child(0).text) == 'async'
+        name = as_str(function_definition.child_by_field_name('name').text)
+        
+        return_type = ''
+        return_type_node = function_definition.child_by_field_name('return_type')
+        if return_type_node:
+            return_type = as_str(return_type_node.text)
+
+        parameters_node = function_definition.child_by_field_name('parameters')
 
         if parameters_node:
             params = []
@@ -68,14 +77,14 @@ class FastAPIMiner(PythonMiner):
                         default_value = as_str(param_node.child_by_field_name('value').text)
                     params.append((value, type))
         
-        return EndpointFunction(name, params)
+        return EndpointFunction(name, params, return_type, is_async)
                     
     
-    def _create_endpoint_decorator(self, node):
+    def _create_endpoint_decorator(self, decorator_node):
 
-        object = as_str(self.find_descendant_node_by_field_name(node, 'object').text)
-        http_method = as_str(self.find_descendant_node_by_field_name(node, 'attribute').text)
-        argumemnts_node = self.find_descendant_node_by_field_name(node, 'arguments')
+        object = as_str(self.find_descendant_node_by_field_name(decorator_node, 'object').text)
+        http_method = as_str(self.find_descendant_node_by_field_name(decorator_node, 'attribute').text)
+        argumemnts_node = self.find_descendant_node_by_field_name(decorator_node, 'arguments')
 
         if argumemnts_node:
             args = []
