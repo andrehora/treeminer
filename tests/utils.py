@@ -1,6 +1,6 @@
 from treeminer.repo import CodeParser
 from treeminer.miners import PythonMiner, JavaScriptMiner, JavaMiner
-from treeminer.extensions import FastAPIMiner
+from extensions import FastAPIMiner
 
 
 def read_file(file_path: str) -> str:

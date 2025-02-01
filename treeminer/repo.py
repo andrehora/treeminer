@@ -181,12 +181,20 @@ class Commit:
         self._miners = miners
 
     @property
+    def project_name(self) -> str:
+        return self._pd_commit.project_name
+
+    @property
     def hash(self) -> str:
         return self._pd_commit.hash
     
     @property
     def msg(self) -> str:
         return self._pd_commit.msg
+    
+    @property
+    def committer_date(self) -> datetime:
+        return self._pd_commit.committer_date
 
     @property
     def info(self) -> PydrillerCommit:
