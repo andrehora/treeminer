@@ -10,6 +10,41 @@ from treeminer.repo import Repo, Commit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
+def pretty_dates(dates: list[date], date_unit) -> list[str]:
+    if date_unit == 'year':
+        return [each.strftime('%Y') for each in dates]
+    if date_unit == 'month':
+        return [each.strftime('%m/%Y') for each in dates]
+    
+def generate_years(start_date: date, end_date: date) -> list[date]:
+    dates = list(range(start_date.year, end_date.year+1))
+    return [date(year, 1, 1) for year in dates]
+
+def generate_months(start_date: date, end_date: date) -> list[date]:
+    start_month = start_date.month
+    start_year = start_date.year
+    end_month = end_date.month
+    end_year = end_date.year
+
+    if start_year == end_year:
+        dates = [(month, start_year) for month in range(start_month, end_month + 1)]
+        return to_date(dates)
+
+    start_year_months = [(month, start_year) for month in range(start_month, 13)]
+    middle_years_months = [(month, year) for year in range(start_year + 1, end_year) for month in range(1, 13)]
+    end_year_months = [(month, end_year) for month in range(1, end_month + 1)]
+
+    return to_date(start_year_months + middle_years_months + end_year_months)
+
+def ge(date1: date, date2: date, date_unit: str):
+    if date_unit == 'year':
+        return date1.year >= date2.year
+    if date_unit == 'month':
+        return date1.year >= date2.year and date1.month >= date2.month
+
+def to_date(self, dates: list[tuple[int,int]]) -> list[date]:
+    return [date(year, month, 1) for month, year in dates]
+
 
 class MetricInfo:
     
@@ -23,7 +58,7 @@ class MetricInfo:
             return self.callback.__name__
         return self._name
 
-class NodeList:
+class SystemNodes:
     
     def __init__(self, nodes: list[Node]):
         self.nodes = nodes
@@ -59,6 +94,9 @@ class MetricHistory:
     def values_as_str(self) -> list[str]:
         return [str(each) for each in self.values]
     
+    def __str__(self):
+        return f'{self.name} {self.dates} {str(self.values)}'
+    
 class MetricResult:
 
     def __init__(self, name: str, value: Number, datetime: datetime):
@@ -93,40 +131,35 @@ class ProjectResult:
         values = [str(metric_result.value) for metric_result in self._metric_results(metric_name)]
         return MetricHistory(metric_name, dates, values)
 
-    def metric_history_fill_missing_dates(self, metric_name: str, date_unit: str = 'year'):
-
-        start_date = self.commit_results[0].datetime
-        end_date = self.commit_results[-1].datetime
-
-        all_dates = []
-        if date_unit == 'year':
-            all_dates = self._generate_years(start_date, end_date)
-        if date_unit == 'month':
-            all_dates = self._generate_months(start_date, end_date)
-
+    def metric_history_fill_missing_dates(self, metric_name: str, date_unit: str = 'year') -> MetricHistory:
+        
         values = []
+        dates = self.dates_by_unit(date_unit)
+        
         metric_results = sorted(self._metric_results(metric_name), key=lambda each: each.datetime, reverse=True)
-        for date in all_dates:
+        for date in dates:
             for metric_result in metric_results:
-                if self._ge(date, metric_result.datetime, date_unit):
+                if ge(date, metric_result.datetime, date_unit):
                     values.append(metric_result.value)
                     break
         
-        dates = self._pretty_dates(all_dates, date_unit)
+        dates = pretty_dates(dates, date_unit)
         return MetricHistory(metric_name, dates, values)
     
-    def _pretty_dates(self, dates: list[datetime], date_unit) -> list[str]:
-        if date_unit == 'year':
-            return [each.strftime('%Y') for each in dates]
-        if date_unit == 'month':
-            return [each.strftime('%m/%Y') for each in dates]
-    
-    def _ge(self, date1: datetime, date2: datetime, date_unit: str):
-        if date_unit == 'year':
-            return date1.year >= date2.year
-        if date_unit == 'month':
-            return date1.year >= date2.year and date1.month >= date2.month
+    def dates_by_unit(self, date_unit) -> list[str]:
+        start_date = self.commit_results[0].datetime.date()
+        end_date = date.today()
+        # end_date = self.commit_results[-1].datetime
 
+        all_dates = []
+        if date_unit == 'year':
+            all_dates = generate_years(start_date, end_date)
+        if date_unit == 'month':
+            all_dates = generate_months(start_date, end_date)
+        
+        return all_dates
+        # return self._pretty_dates(all_dates, date_unit)
+    
     def _metric_results(self, metric_name: str) -> list[MetricResult]:
         values = []
         for commit_result in self.commit_results:
@@ -134,29 +167,6 @@ class ProjectResult:
                 if metric_result.name == metric_name:
                     values.append(metric_result)
         return values
-
-    def _generate_years(self, start_date: datetime, end_date: datetime) -> list[date]:
-        dates = list(range(start_date.year, end_date.year+1))
-        return [date(year, 1, 1) for year in dates]
-    
-    def _generate_months(self, start_date: datetime, end_date: datetime) -> list[date]:
-        start_month = start_date.month
-        start_year = start_date.year
-        end_month = end_date.month
-        end_year = end_date.year
-
-        if start_year == end_year:
-            dates = [(month, start_year) for month in range(start_month, end_month + 1)]
-            return self._to_date(dates)
-
-        start_year_months = [(month, start_year) for month in range(start_month, 13)]
-        middle_years_months = [(month, year) for year in range(start_year + 1, end_year) for month in range(1, 13)]
-        end_year_months = [(month, end_year) for month in range(1, end_month + 1)]
-
-        return self._to_date(start_year_months + middle_years_months + end_year_months)
-    
-    def _to_date(self, dates: list[tuple[int,int]]) -> list[date]:
-        return [date(year, month, 1) for month, year in dates]
 
 class Result:
 
@@ -170,12 +180,21 @@ class Result:
     def add_metric_name(self, name):
         self.metric_names.append(name)
 
-    def metric_values_fill_missing_dates(self, date_unit: str = 'year'):
+    def merged_dates(self, date_unit: str = 'year'):
+        merged_dates = set()
         for project_result in result.project_results:
-            pass
-            dates, values = project_result.metric_values_fill_missing_dates(metric_name, date_unit)
-            print(dates)
+            dates = project_result.dates_by_unit(date_unit)
+            merged_dates.update(dates)
+        return pretty_dates(sorted(list(merged_dates)), date_unit)
 
+    def metric_history_fill_missing_dates(self, metric_name: str, date_unit: str = 'year'):
+
+        dates = self.merged_dates()
+        for project_result in result.project_results:
+            metric_history = project_result.metric_history_fill_missing_dates(metric_name, date_unit)
+            for each_date in dates:
+                print(each_date)
+                
 
 class StateOf:
 
@@ -233,7 +252,7 @@ class StateOf:
             for metric_info in self.registered_metrics:
                 
                 commit_nodes = self._get_all_nodes(commit)
-                node_list = NodeList(commit_nodes)
+                node_list = SystemNodes(commit_nodes)
                 
                 # Compute the metric value
                 metric_value = metric_info.callback(node_list)
@@ -288,30 +307,18 @@ app = StateOf('Foo', projects=projects, file_extensions=['.py'], commit_selectio
 # def decorated(nodes: NodeList):
 #     return nodes.count_by_type(['decorated_definition'])
 
-@app.metric('functions (LOC)')
-def functions(nodes: NodeList):
-    return nodes.loc_by_type(['function_definition'])
+@app.metric('functions')
+def functions(nodes: SystemNodes):
+    return nodes.loc_by_type(['function_definition'], 'mean')
 
 result = app.compute_metrics()
-# result.metric_values_fill_missing_dates('year')
+m = result.metric_history_fill_missing_dates('functions', 'year')
+print(m)
 
-# from rich import print
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
+# for project_result in result.project_results:
+#     dates = project_result.metric_history_fill_missing_dates('functions', 'year').dates
+#     print(dates)
 
-for project_result in result.project_results:
-    console = Console()
-    table = Table(show_header=True)
-    console.print(Panel(project_result.name, expand=False, style='orange1'))
-
-    table.add_column('dates', style='green1')
-    dates = project_result.metric_history_fill_missing_dates('functions', 'year').dates
-    for each in dates:
-        table.add_column(each)
-
-    for metric_name in result.metric_names:
-        values = project_result.metric_history_fill_missing_dates(metric_name, 'year').values_as_str
-        table.add_row(metric_name, *values)
-
-    console.print(table)
+#     for metric_name in result.metric_names:
+#         values = project_result.metric_history_fill_missing_dates(metric_name, 'year').values_as_str
+#         print(values)
