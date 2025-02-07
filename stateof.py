@@ -62,11 +62,12 @@ class DateUtil:
 
 class MetricInfo:
     
-    def __init__(self, name: str, callback, categorical: bool, all_nodes: bool):
+    def __init__(self, name: str, callback, categorical: bool, all_nodes: bool, file_extension: str):
         self._name = name
         self.callback = callback
         self.categorical = categorical
         self.all_nodes = all_nodes
+        self.file_extension = file_extension
 
     @property
     def name(self):
@@ -234,20 +235,23 @@ class Result:
             operation = getattr(statistics, measure)
             result = operation(metric_values)
             values.append(round(result, 2))
+            # values.append(sum(metric_values))
 
         return MetricEvolution(metric_name, dates, values)
                 
 
-class EvoGit:
+class Treevo:
 
-    def __init__(self, name: str, projects: list[str], file_extensions: list[str] | None, 
+    def __init__(self, name: str, projects: list[str], file_extension: str | None = None, 
                  date_unit: str = 'year', since_year: int | None = None):
         
         assert date_unit in ['year', 'month'], 'date_unit must be year or month'
 
         self.name = name
         self.projects = projects
-        self.file_extensions = file_extensions
+        self.global_file_extension = None
+        if file_extension is not None:
+            self.global_file_extension = file_extension
         self.date_unit = date_unit
         self.since_year = since_year
 
@@ -255,11 +259,14 @@ class EvoGit:
         self.analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
 
-    def metric(self, name: str = None, categorical: bool = False, all_nodes: bool = False):
+    def metric(self, name: str = None, *, categorical: bool = False, all_nodes: bool = False, file_extension: str | None = None):
         def decorator(func):
             self.registered_metrics.append(
-                MetricInfo(name=name, callback=func, categorical=categorical, 
-                           all_nodes=all_nodes))
+                MetricInfo(name=name, 
+                           callback=func, 
+                           categorical=categorical, 
+                           all_nodes=all_nodes, 
+                           file_extension=file_extension))
             return func
         return decorator
     
@@ -297,8 +304,11 @@ class EvoGit:
             commit_result = CommitResult(commit.hash, commit.committer_date.date())
             for metric_info in self.registered_metrics:
                 
+                if self.global_file_extension is None and metric_info.file_extension is None:
+                    raise FileExtensionNotFound(f'file_extension should be defined in metric {metric_info.name}')
+                
                 # Create parsed commit
-                parsed_commit = self._create_parsed_commit(commit, metric_info.all_nodes)
+                parsed_commit = self._create_parsed_commit(commit, metric_info.all_nodes, metric_info.file_extension)
                 
                 # Run the metric callback
                 metric_value = metric_info.callback(parsed_commit)
@@ -320,10 +330,13 @@ class EvoGit:
         
         return result
 
-    def _create_parsed_commit(self, commit: Commit, all_nodes: bool) -> ParsedCommit:
-        
+    def _create_parsed_commit(self, commit: Commit, all_nodes: bool, file_extension: str) -> ParsedCommit:
         parsed_files = []
-        for file in commit.all_files(self.file_extensions):
+
+        if file_extension is not None: target_extension = file_extension
+        else: target_extension = self.global_file_extension
+
+        for file in commit.all_files([target_extension]):
 
             if all_nodes: file_nodes = [node for node in file.tree_nodes]
             else: file_nodes = [node for node in file.tree_nodes if node.is_named]
@@ -332,23 +345,47 @@ class EvoGit:
             parsed_files.append(parsed_file)
 
         return ParsedCommit(commit.hash, commit.committer_date, parsed_files)
+    
+class FileExtensionNotFound(Exception):
+    pass
 
 # projects = ['git/FastAPI-template']
-projects = ['git/full-stack-fastapi-template']
+# projects = ['git/full-stack-fastapi-template']
 # projects = ['git/dispatch']
-# projects = ['git/fastapi']
+projects = ['git/fastapi']
 # projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
 # projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
 
-app = EvoGit('Foo', projects=projects, file_extensions=['.py'], date_unit='year')
+app = Treevo('Foo', projects=projects, file_extension='.py', date_unit='year')
 
-@app.metric(name='named_nodes')
-def named_nodes(commit: ParsedCommit):
-    return commit.count_nodes()
 
-@app.metric(name='all_nodes', all_nodes=True)
-def all_nodes(commit: ParsedCommit):
-    return commit.count_nodes()
+@app.metric(name='js_functions', file_extension='.js', categorical=True)
+def python_files(commit: ParsedCommit):
+
+    function_nodes = ['function_declaration', 'method_definition', 'generator_function_declaration', 
+                    'arrow_function', 'generator_function', 'function_expression']
+
+    return commit.node_types(function_nodes)
+
+# @app.metric(name='python_files', file_extension='.py')
+# def python_files(commit: ParsedCommit):
+#     return len(commit.parsed_files)
+
+# @app.metric(name='js_files', file_extension='.js')
+# def js_files(commit: ParsedCommit):
+#     return len(commit.parsed_files)
+
+# @app.metric(name='test_files', file_extension='.py')
+# def test_files(commit: ParsedCommit):
+#     return len([file.name for file in commit.parsed_files if 'test' in file.path])
+
+# @app.metric(name='named_nodes')
+# def named_nodes(commit: ParsedCommit):
+#     return commit.count_nodes()
+
+# @app.metric(name='all_nodes', all_nodes=True)
+# def all_nodes(commit: ParsedCommit):
+#     return commit.count_nodes()
 
 # @app.metric(name='imports', categorical=True)
 # def imports(nodes: Nodes):
