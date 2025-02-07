@@ -1,6 +1,6 @@
 import statistics
 
-from datetime import date
+from datetime import date, datetime
 from numbers import Number
 from collections import Counter
 
@@ -62,35 +62,49 @@ class DateUtil:
 
 class MetricInfo:
     
-    def __init__(self, name: str, callback, categorical: bool, include_unamed_nodes: bool):
+    def __init__(self, name: str, callback, categorical: bool, all_nodes: bool):
         self._name = name
         self.callback = callback
         self.categorical = categorical
-        self.include_unamed_nodes = include_unamed_nodes
+        self.all_nodes = all_nodes
 
     @property
     def name(self):
         if self._name is None:
             return self.callback.__name__
         return self._name
+    
+class ParsedFile:
 
-class Nodes:
-    
-    def __init__(self, nodes: list[Node]):
+    def __init__(self, name: str, path: str, nodes: list[Node]):
+        self.name = name
+        self.path = path
         self.nodes = nodes
+
+class ParsedCommit:
     
-    def types(self, node_types: list[str] = None) -> list[str]:
+    def __init__(self, hash: str, date: datetime, parsed_files: list[ParsedFile]):
+        self.hash = hash
+        self.date = date
+        self.parsed_files = parsed_files
+
+    @property
+    def nodes(self) -> list[Node]:
+        return [node for file in self.parsed_files for node in file.nodes]
+    
+    def node_types(self, node_types: list[str] = None) -> list[str]:
         if node_types is None:
             return [node.type for node in self.nodes]
         return [node.type for node in self.nodes if node.type in node_types]
     
-    def count(self, node_types: list[str] = None) -> int:
+    def count_nodes(self, node_types: list[str] = None) -> int:
         if node_types is None:
             return len(self.nodes)
         return len(self._find_nodes_by_type(node_types))
     
-    def loc_for_type(self, node_type: str, measure: str = 'median') -> Number | list[Number]:
+    def loc(self, node_type: str, measure: str = 'median') -> Number:
         assert measure in ['median', 'mean', 'mode'], 'measure should be mean, median, or mode'
+        
         nodes = self._find_nodes_by_type([node_type])
         locs = [len(as_str(node.text).split('\n')) for node in nodes]
         operation = getattr(statistics, measure)
@@ -224,7 +238,7 @@ class Result:
         return MetricEvolution(metric_name, dates, values)
                 
 
-class StateOf:
+class EvoGit:
 
     def __init__(self, name: str, projects: list[str], file_extensions: list[str] | None, 
                  date_unit: str = 'year', since_year: int | None = None):
@@ -241,11 +255,11 @@ class StateOf:
         self.analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
 
-    def metric(self, name: str = None, categorical: bool = False, include_unamed_nodes: bool = False):
+    def metric(self, name: str = None, categorical: bool = False, all_nodes: bool = False):
         def decorator(func):
             self.registered_metrics.append(
                 MetricInfo(name=name, callback=func, categorical=categorical, 
-                           include_unamed_nodes=include_unamed_nodes))
+                           all_nodes=all_nodes))
             return func
         return decorator
     
@@ -279,18 +293,18 @@ class StateOf:
                 continue
             project_commits.add(selected_date)
 
-            # Compute the metrics for the commit nodes
+            # Iterate on each metric
             commit_result = CommitResult(commit.hash, commit.committer_date.date())
             for metric_info in self.registered_metrics:
                 
-                commit_nodes = self._get_all_nodes(commit)
-                node_list = Nodes(commit_nodes)
+                # Create parsed commit
+                parsed_commit = self._create_parsed_commit(commit, metric_info.all_nodes)
                 
-                # Run the callback metrics
-                metric_value = metric_info.callback(node_list)
+                # Run the metric callback
+                metric_value = metric_info.callback(parsed_commit)
                 metric_name = metric_info.name
 
-                # Process the metric value
+                # Process the metric return value
                 if metric_info.categorical:
                     assert isinstance(metric_value, list), 'categorical metric should return list of strings'
                     for name, value in Counter(metric_value).most_common():
@@ -306,12 +320,18 @@ class StateOf:
         
         return result
 
-    def _get_all_nodes(self, commit: Commit):
-        commit_nodes = []
+    def _create_parsed_commit(self, commit: Commit, all_nodes: bool) -> ParsedCommit:
+        
+        parsed_files = []
         for file in commit.all_files(self.file_extensions):
-            file_nodes = list(file.tree_nodes)
-            commit_nodes.extend(file_nodes)
-        return commit_nodes
+
+            if all_nodes: file_nodes = [node for node in file.tree_nodes]
+            else: file_nodes = [node for node in file.tree_nodes if node.is_named]
+
+            parsed_file = ParsedFile(file.filename, file.path, file_nodes)
+            parsed_files.append(parsed_file)
+
+        return ParsedCommit(commit.hash, commit.committer_date, parsed_files)
 
 # projects = ['git/FastAPI-template']
 projects = ['git/full-stack-fastapi-template']
@@ -320,49 +340,53 @@ projects = ['git/full-stack-fastapi-template']
 # projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
 # projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
 
-app = StateOf('Foo', projects=projects, file_extensions=['.py'], date_unit='year')
+app = EvoGit('Foo', projects=projects, file_extensions=['.py'], date_unit='year')
 
-@app.metric(name='types', categorical=True)
-def all_nodes(nodes: Nodes):
-    return nodes.types()
+@app.metric(name='named_nodes')
+def named_nodes(commit: ParsedCommit):
+    return commit.count_nodes()
+
+@app.metric(name='all_nodes', all_nodes=True)
+def all_nodes(commit: ParsedCommit):
+    return commit.count_nodes()
 
 # @app.metric(name='imports', categorical=True)
 # def imports(nodes: Nodes):
-#     return nodes.types(['import_statement', 'import_from_statement', 'future_import_statement'])
+#     return nodes.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
 # @app.metric(name='all_imports')
 # def all_imports(nodes: Nodes):
 #     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return nodes.count(import_nodes)
+#     return nodes.count_nodes(import_nodes)
 
 # @app.metric(name='all_imports')
 # def all_imports(nodes: Nodes):
 #     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return nodes.count(import_nodes)
+#     return nodes.count_nodes(import_nodes)
 
 # @app.metric(name='import_from_statement')
 # def import_from_statement(nodes: Nodes):
-#     return nodes.count(['import_from_statement'])
+#     return nodes.count_nodes(['import_from_statement'])
 
 # @app.metric(name='import_statement')
 # def import_statement(nodes: Nodes):
-#     return nodes.count(['import_statement'])
+#     return nodes.count_nodes(['import_statement'])
 
 # @app.metric(name='future_import_statement')
 # def future_import_statement(nodes: Nodes):
-#     return nodes.count(['future_import_statement'])
+#     return nodes.count_nodes(['future_import_statement'])
 
 # @app.metric(name='decorated')
 # def decorated(nodes: Nodes):
-#     return nodes.count(['decorated_definition'])
+#     return nodes.count_nodes(['decorated_definition'])
 
 # @app.metric(name='classes (LOC)')
 # def classes(nodes: Nodes):
-#     return nodes.loc_for_type('class_definition', 'median')
+#     return nodes.loc('class_definition', 'median')
 
 # @app.metric('functions (LOC)')
 # def functions(nodes: Nodes):
-#     return nodes.loc_for_type('function_definition', 'median')
+#     return nodes.loc('function_definition', 'median')
 
 result = app.compute_metrics()
 for metric_name in result.metric_names:
