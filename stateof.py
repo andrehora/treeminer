@@ -62,10 +62,11 @@ class DateUtil:
 
 class MetricInfo:
     
-    def __init__(self, name: str, categorical: bool, callback):
+    def __init__(self, name: str, callback, categorical: bool, include_unamed_nodes: bool):
         self._name = name
-        self.categorical = categorical
         self.callback = callback
+        self.categorical = categorical
+        self.include_unamed_nodes = include_unamed_nodes
 
     @property
     def name(self):
@@ -77,27 +78,26 @@ class Nodes:
     
     def __init__(self, nodes: list[Node]):
         self.nodes = nodes
-
-    @property
-    def size(self):
-        return len(self.nodes)
     
-    def by_types(self, node_types: list[str] = None) -> list[str]:
+    def types(self, node_types: list[str] = None) -> list[str]:
         if node_types is None:
             return [node.type for node in self.nodes]
         return [node.type for node in self.nodes if node.type in node_types]
     
-    def find_by_type(self, node_types: list[str]) -> list[Node]:
-        return [node for node in self.nodes if node.type in node_types]
+    def count(self, node_types: list[str] = None) -> int:
+        if node_types is None:
+            return len(self.nodes)
+        return len(self._find_nodes_by_type(node_types))
     
-    def count_by_type(self, node_types: list[str]) -> int:
-        return len(self.find_by_type(node_types))
-    
-    def loc_by_type(self, node_types: list[str], measure: str = 'median') -> Number | list[Number]:
-        nodes = self.find_by_type(node_types)
+    def loc_for_type(self, node_type: str, measure: str = 'median') -> Number | list[Number]:
+        assert measure in ['median', 'mean', 'mode'], 'measure should be mean, median, or mode'
+        nodes = self._find_nodes_by_type([node_type])
         locs = [len(as_str(node.text).split('\n')) for node in nodes]
         operation = getattr(statistics, measure)
         return operation(locs)
+    
+    def _find_nodes_by_type(self, node_types: list[str]) -> list[Node]:
+        return [node for node in self.nodes if node.type in node_types]
 
 class MetricEvolution:
 
@@ -229,7 +229,7 @@ class StateOf:
     def __init__(self, name: str, projects: list[str], file_extensions: list[str] | None, 
                  date_unit: str = 'year', since_year: int | None = None):
         
-        assert date_unit in ['year', 'month'], 'date_unit must be "year" or "month"'
+        assert date_unit in ['year', 'month'], 'date_unit must be year or month'
 
         self.name = name
         self.projects = projects
@@ -241,10 +241,11 @@ class StateOf:
         self.analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
 
-    def metric(self, name: str = None, categorical: bool = False):
+    def metric(self, name: str = None, categorical: bool = False, include_unamed_nodes: bool = False):
         def decorator(func):
             self.registered_metrics.append(
-                MetricInfo(name=name, categorical=categorical, callback=func))
+                MetricInfo(name=name, callback=func, categorical=categorical, 
+                           include_unamed_nodes=include_unamed_nodes))
             return func
         return decorator
     
@@ -306,59 +307,62 @@ class StateOf:
         return result
 
     def _get_all_nodes(self, commit: Commit):
-        _commit_nodes = []
+        commit_nodes = []
         for file in commit.all_files(self.file_extensions):
             file_nodes = list(file.tree_nodes)
-            _commit_nodes.extend(file_nodes)
-        return _commit_nodes
+            commit_nodes.extend(file_nodes)
+        return commit_nodes
 
 # projects = ['git/FastAPI-template']
-# projects = ['git/full-stack-fastapi-template']
+projects = ['git/full-stack-fastapi-template']
 # projects = ['git/dispatch']
 # projects = ['git/fastapi']
 # projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
-projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
+# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
 
 app = StateOf('Foo', projects=projects, file_extensions=['.py'], date_unit='year')
 
 @app.metric(name='types', categorical=True)
-def all_types(nodes: Nodes):
-    # return nodes.by_types()
-    return nodes.by_types(['import_statement', 'import_from_statement', 'future_import_statement'])
+def all_nodes(nodes: Nodes):
+    return nodes.types()
+
+# @app.metric(name='imports', categorical=True)
+# def imports(nodes: Nodes):
+#     return nodes.types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
 # @app.metric(name='all_imports')
 # def all_imports(nodes: Nodes):
 #     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return nodes.count_by_type(import_nodes)
+#     return nodes.count(import_nodes)
 
 # @app.metric(name='all_imports')
 # def all_imports(nodes: Nodes):
 #     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return nodes.count_by_type(import_nodes)
+#     return nodes.count(import_nodes)
 
 # @app.metric(name='import_from_statement')
 # def import_from_statement(nodes: Nodes):
-#     return nodes.count_by_type(['import_from_statement'])
+#     return nodes.count(['import_from_statement'])
 
 # @app.metric(name='import_statement')
 # def import_statement(nodes: Nodes):
-#     return nodes.count_by_type(['import_statement'])
+#     return nodes.count(['import_statement'])
 
 # @app.metric(name='future_import_statement')
 # def future_import_statement(nodes: Nodes):
-#     return nodes.count_by_type(['future_import_statement'])
+#     return nodes.count(['future_import_statement'])
 
 # @app.metric(name='decorated')
 # def decorated(nodes: Nodes):
-#     return nodes.count_by_type(['decorated_definition'])
+#     return nodes.count(['decorated_definition'])
 
 # @app.metric(name='classes (LOC)')
 # def classes(nodes: Nodes):
-#     return nodes.loc_by_type(['class_definition'])
+#     return nodes.loc_for_type('class_definition', 'median')
 
-# @app.metric('functions')
+# @app.metric('functions (LOC)')
 # def functions(nodes: Nodes):
-#     return nodes.loc_by_type(['function_definition'], 'median')
+#     return nodes.loc_for_type('function_definition', 'median')
 
 result = app.compute_metrics()
 for metric_name in result.metric_names:
