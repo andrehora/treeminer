@@ -11,6 +11,18 @@ from treeminer.repo import Repo, Commit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
+def aggregate_basic(values: list[Number], measure: str) -> Number:
+    if measure == 'max':
+        return max(values)
+    if measure == 'min':
+        return min(values)
+    return sum(values)
+
+def aggregate_stat(values: list[Number], measure: str) -> Number:
+    operation = getattr(statistics, measure)
+    result = operation(values)
+    return round(result, 2)
+
 class DateUtil:
 
     date_unit: str = 'year'
@@ -19,6 +31,7 @@ class DateUtil:
     
     @classmethod
     def dates_by_unit(cls, start_date: date, end_date: date) -> list[date]:
+        assert end_date >= start_date
         dates = []
         if cls.date_unit == 'year':
             dates = cls._generate_years(start_date, end_date)
@@ -59,15 +72,19 @@ class DateUtil:
     def _convert_tuples_to_dates(cls, dates: list[tuple[int,int]]) -> list[date]:
         return [date(year, month, 1) for month, year in dates]
 
-
 class MetricInfo:
     
-    def __init__(self, name: str, callback, categorical: bool, all_nodes: bool, file_extension: str):
+    def __init__(self, name: str, callback, file_extension: str, 
+                 include_named_nodes: bool, include_unnamed_nodes: bool,
+                 categorical: bool, aggregate: str):
+        
         self._name = name
         self.callback = callback
-        self.categorical = categorical
-        self.all_nodes = all_nodes
         self.file_extension = file_extension
+        self.include_named_nodes = include_named_nodes
+        self.include_unnamed_nodes = include_unnamed_nodes
+        self.categorical = categorical
+        self.aggregate = aggregate
 
     @property
     def name(self):
@@ -104,12 +121,14 @@ class ParsedCommit:
         return len(self._find_nodes_by_type(node_types))
     
     def loc(self, node_type: str, measure: str = 'median') -> Number:
-        assert measure in ['median', 'mean', 'mode'], 'measure should be mean, median, or mode'
+
+        if measure not in ['median', 'mean', 'mode']:
+            raise BadLOCMeasure(f'LOC measure should be median, mean, or mode')
         
         nodes = self._find_nodes_by_type([node_type])
         locs = [len(as_str(node.text).split('\n')) for node in nodes]
-        operation = getattr(statistics, measure)
-        return operation(locs)
+        
+        return aggregate_stat(locs, measure)
     
     def _find_nodes_by_type(self, node_types: list[str]) -> list[Node]:
         return [node for node in self.nodes if node.type in node_types]
@@ -120,10 +139,6 @@ class MetricEvolution:
         self.name = name
         self.dates = dates
         self.values = values
-    
-    @property
-    def values_as_str(self) -> list[str]:
-        return [str(each) for each in self.values]
     
     @property
     def dates_and_values(self):
@@ -198,17 +213,17 @@ class Result:
     def __init__(self, date_unit: str):
         DateUtil.date_unit = date_unit
         self.project_results: list[ProjectResult] = []
-        self._metric_names: list[str] = []
+        self.metrics = MetricsAggregatorInfo()
 
     @property
-    def metric_names(self) -> set[str]:
-        return list(dict.fromkeys(self._metric_names))
+    def metric_names(self) -> list[str]:
+        return self.metrics.names
+    
+    def add_metric(self, name: str, aggregate: str):
+        self.metrics.add(name, aggregate)
 
     def add_project_result(self, project_result: ProjectResult):
         self.project_results.append(project_result)
-
-    def add_metric_name(self, name: str):
-        self._metric_names.append(name)
 
     def date_steps(self) -> list[date]:
         dates = set()
@@ -216,38 +231,78 @@ class Result:
             project_dates = project_result.date_steps()
             dates.update(project_dates)
         return sorted(list(dates))
+    
+    def evolutions(self) -> list[MetricEvolution]:
+        metric_evolutions = []
+        for metric_name, metric_agg in self.metrics.names_and_aggregates:
+            metric_evo = self.metric_evolution(metric_name, metric_agg)
+            metric_evolutions.append(metric_evo)
+        return metric_evolutions
 
-    def metric_evolution(self, metric_name: str, measure: str = 'median') -> MetricEvolution:
+    def metric_evolution(self, metric_name: str, aggregate: str) -> MetricEvolution:
 
         dates = DateUtil.formatted_dates(self.date_steps())
 
-        values_by_date = {}
-        for date in dates:
-            values_by_date[date] = []
+        # If one project, just return its dates and values
+        if len(self.project_results) == 1:
+            project = self.project_results[0]
+            values = project.metric_evolution(metric_name).values
+            return MetricEvolution(metric_name, dates, values)
+
+        # If multiples projects, we need to aggregate the values...
+
+        values_by_date = {date: [] for date in dates}
 
         for project_result in self.project_results:
             metric_evolution = project_result.metric_evolution(metric_name)
             for date, value in metric_evolution.dates_and_values:
                 values_by_date[date].append(value)
         
+        # Aggregate values
         values = []
         for metric_values in values_by_date.values():
-            operation = getattr(statistics, measure)
-            result = operation(metric_values)
-            values.append(round(result, 2))
-            # values.append(sum(metric_values))
+            
+            value = None
+            if aggregate in ['sum', 'max', 'min']:
+                value = aggregate_basic(metric_values, aggregate)
+            if aggregate in ['median', 'mean', 'mode']:
+                value = aggregate_stat(metric_values, aggregate)
+            
+            assert value is not None
+            values.append(value)
 
         return MetricEvolution(metric_name, dates, values)
+    
+    def summary(self):
+        for evo in self.evolutions():
+            print(evo)
+
+class MetricsAggregatorInfo:
+
+    def __init__(self):
+        self.data: dict[str, str] = {}
+
+    @property
+    def names(self) -> list[str]:
+        return list(self._metrics.keys())
+    
+    @property
+    def names_and_aggregates(self):
+        return self.data.items()
+
+    def add(self, name: str, aggregate: str):
+        if name in self.data:
+            return
+        self.data[name] = aggregate
                 
+class GitEvo:
 
-class Treevo:
-
-    def __init__(self, name: str, projects: list[str], file_extension: str | None = None, 
+    def __init__(self, projects: list[str], file_extension: str | None = None, 
                  date_unit: str = 'year', since_year: int | None = None):
         
-        assert date_unit in ['year', 'month'], 'date_unit must be year or month'
+        if date_unit not in ['year', 'month']:
+            raise BadDateUnit('date_unit must be year or month')
 
-        self.name = name
         self.projects = projects
         self.global_file_extension = None
         if file_extension is not None:
@@ -259,23 +314,40 @@ class Treevo:
         self.analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
 
-    def metric(self, name: str = None, *, categorical: bool = False, all_nodes: bool = False, file_extension: str | None = None):
+    def metric(self, name: str = None,
+               *,
+               file_extension: str | None = None, 
+               include_named_nodes: bool = True, 
+               include_unnamed_nodes: bool = False, 
+               categorical: bool = False, 
+               aggregate: str = 'sum'):
+        
         def decorator(func):
             self.registered_metrics.append(
                 MetricInfo(name=name, 
-                           callback=func, 
-                           categorical=categorical, 
-                           all_nodes=all_nodes, 
-                           file_extension=file_extension))
+                           callback=func,
+                           file_extension=file_extension,
+                           include_named_nodes=include_named_nodes,
+                           include_unnamed_nodes=include_unnamed_nodes,
+                           categorical=categorical,
+                           aggregate=aggregate))
             return func
         return decorator
     
-    def compute_metrics(self) -> Result:
+    def compute(self) -> Result:
         
+        # Sanity checks on registered_metrics
         result = Result(self.date_unit)
         for metric_info in self.registered_metrics:
+
+            if self.global_file_extension is None and metric_info.file_extension is None:
+                raise FileExtensionNotFound(f'file_extension should be defined in metric {metric_info.name}')
+            
+            if metric_info.aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
+                raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min')
+
             if not metric_info.categorical:
-                result.add_metric_name(metric_info.name)
+                result.add_metric(metric_info.name, metric_info.aggregate)
 
         project_result = None
         project_name = ''
@@ -304,25 +376,31 @@ class Treevo:
             commit_result = CommitResult(commit.hash, commit.committer_date.date())
             for metric_info in self.registered_metrics:
                 
-                if self.global_file_extension is None and metric_info.file_extension is None:
-                    raise FileExtensionNotFound(f'file_extension should be defined in metric {metric_info.name}')
-                
                 # Create parsed commit
-                parsed_commit = self._create_parsed_commit(commit, metric_info.all_nodes, metric_info.file_extension)
+                parsed_commit = self._create_parsed_commit(commit, metric_info)
                 
                 # Run the metric callback
                 metric_value = metric_info.callback(parsed_commit)
                 metric_name = metric_info.name
 
-                # Process the metric return value
-                if metric_info.categorical:
-                    assert isinstance(metric_value, list), 'categorical metric should return list of strings'
+                # Process categorical metrics
+                if metric_info.categorical: 
+
+                    if not isinstance(metric_value, list):
+                        raise BadReturnType(f'categorical metric {metric_info.name} should return list of strings')
+
                     for name, value in Counter(metric_value).most_common():
+                        assert isinstance(name, str), f'categorical metric {metric_info.name} should return list of strings'
                         metric_result = MetricResult(name=name, value=value, date=commit_result.date)
                         commit_result.add_metric_result(metric_result)
-                        result.add_metric_name(name)
+                        result.add_metric(name, metric_info.aggregate)
+                
+                # Process Numerical metrics
                 else:
-                    assert isinstance(metric_value, (int, float)), 'numerical metrics should return int or float'
+                    
+                    if not isinstance(metric_value, (int, float)):
+                        raise BadReturnType(f'numerical metric {metric_info.name} should return int or float')
+
                     metric_result = MetricResult(name=metric_name, value=metric_value, date=commit_result.date)
                     commit_result.add_metric_result(metric_result)
         
@@ -330,16 +408,22 @@ class Treevo:
         
         return result
 
-    def _create_parsed_commit(self, commit: Commit, all_nodes: bool, file_extension: str) -> ParsedCommit:
+    def _create_parsed_commit(self, commit: Commit, metric_info: MetricInfo) -> ParsedCommit:
         parsed_files = []
+
+        file_extension = metric_info.file_extension
+        named_nodes = metric_info.include_named_nodes
+        unnamed_nodes = metric_info.include_unnamed_nodes
 
         if file_extension is not None: target_extension = file_extension
         else: target_extension = self.global_file_extension
 
         for file in commit.all_files([target_extension]):
-
-            if all_nodes: file_nodes = [node for node in file.tree_nodes]
-            else: file_nodes = [node for node in file.tree_nodes if node.is_named]
+            
+            file_nodes = []
+            if named_nodes and unnamed_nodes: file_nodes = [node for node in file.tree_nodes]
+            elif named_nodes: file_nodes = [node for node in file.tree_nodes if node.is_named]
+            elif unnamed_nodes: file_nodes = [node for node in file.tree_nodes if not node.is_named]
 
             parsed_file = ParsedFile(file.filename, file.path, file_nodes)
             parsed_files.append(parsed_file)
@@ -349,83 +433,80 @@ class Treevo:
 class FileExtensionNotFound(Exception):
     pass
 
+class BadAggregate(Exception):
+    pass
+
+class BadReturnType(Exception):
+    pass
+
+class BadDateUnit(Exception):
+    pass
+
+class BadLOCMeasure(Exception):
+    pass
+
 # projects = ['git/FastAPI-template']
-# projects = ['git/full-stack-fastapi-template']
+projects = ['git/full-stack-fastapi-template']
 # projects = ['git/dispatch']
-projects = ['git/fastapi']
+# projects = ['git/fastapi']
 # projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
-# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
-
-app = Treevo('Foo', projects=projects, file_extension='.py', date_unit='year')
+projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
 
 
-@app.metric(name='js_functions', file_extension='.js', categorical=True)
-def python_files(commit: ParsedCommit):
+evo = GitEvo(projects=projects, file_extension='.py', date_unit='year')
 
-    function_nodes = ['function_declaration', 'method_definition', 'generator_function_declaration', 
-                    'arrow_function', 'generator_function', 'function_expression']
-
-    return commit.node_types(function_nodes)
-
-# @app.metric(name='python_files', file_extension='.py')
+# @evo.metric('python_files', aggregate='sum')
 # def python_files(commit: ParsedCommit):
 #     return len(commit.parsed_files)
 
-# @app.metric(name='js_files', file_extension='.js')
-# def js_files(commit: ParsedCommit):
-#     return len(commit.parsed_files)
-
-# @app.metric(name='test_files', file_extension='.py')
+# @evo.metric('test_files', aggregate='sum')
 # def test_files(commit: ParsedCommit):
 #     return len([file.name for file in commit.parsed_files if 'test' in file.path])
 
-# @app.metric(name='named_nodes')
-# def named_nodes(commit: ParsedCommit):
-#     return commit.count_nodes()
+# @evo.metric('nodes', categorical=True, aggregate='sum')
+# def unnamed_nodes(commit: ParsedCommit):
+#     return commit.node_types()
 
-# @app.metric(name='all_nodes', all_nodes=True)
-# def all_nodes(commit: ParsedCommit):
-#     return commit.count_nodes()
+@evo.metric(name='imports', categorical=True)
+def imports(commit: ParsedCommit):
+    return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
-# @app.metric(name='imports', categorical=True)
-# def imports(nodes: Nodes):
-#     return nodes.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
-
-# @app.metric(name='all_imports')
-# def all_imports(nodes: Nodes):
+# @evo.metric(name='all_imports')
+# def all_imports(commit: ParsedCommit):
 #     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return nodes.count_nodes(import_nodes)
+#     return commit.count_nodes(import_nodes)
 
-# @app.metric(name='all_imports')
-# def all_imports(nodes: Nodes):
-#     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return nodes.count_nodes(import_nodes)
+# @evo.metric(name='import_from_statement')
+# def import_from_statement(commit: ParsedCommit):
+#     return commit.count_nodes(['import_from_statement'])
 
-# @app.metric(name='import_from_statement')
-# def import_from_statement(nodes: Nodes):
-#     return nodes.count_nodes(['import_from_statement'])
+# @evo.metric(name='import_statement')
+# def import_statement(commit: ParsedCommit):
+#     return commit.count_nodes(['import_statement'])
 
-# @app.metric(name='import_statement')
-# def import_statement(nodes: Nodes):
-#     return nodes.count_nodes(['import_statement'])
+# @evo.metric(name='future_import_statement')
+# def future_import_statement(commit: ParsedCommit):
+#     return commit.count_nodes(['future_import_statement'])
 
-# @app.metric(name='future_import_statement')
-# def future_import_statement(nodes: Nodes):
-#     return nodes.count_nodes(['future_import_statement'])
+# @evo.metric(name='class_definition', aggregate='sum')
+# def decorated(commit: ParsedCommit):
+#     return commit.count_nodes(['class_definition'])
 
-# @app.metric(name='decorated')
-# def decorated(nodes: Nodes):
-#     return nodes.count_nodes(['decorated_definition'])
+# @evo.metric(name='function_definition', aggregate='sum')
+# def decorated(commit: ParsedCommit):
+#     return commit.count_nodes(['function_definition'])
 
-# @app.metric(name='classes (LOC)')
-# def classes(nodes: Nodes):
-#     return nodes.loc('class_definition', 'median')
+# @evo.metric(name='decorated')
+# def decorated(commit: ParsedCommit):
+#     return commit.count_nodes(['decorated_definition'])
 
-# @app.metric('functions (LOC)')
-# def functions(nodes: Nodes):
-#     return nodes.loc('function_definition', 'median')
+# @evo.metric(name='classes (LOC)')
+# def classes(commit: ParsedCommit):
+#     return commit.loc('class_definition', 'median')
 
-result = app.compute_metrics()
-for metric_name in result.metric_names:
-    values = result.metric_evolution(metric_name)
-    print(values)
+# @evo.metric('functions (LOC)')
+# def functions(commit: ParsedCommit):
+#     return commit.loc('function_definition', 'mean')
+
+result = evo.compute()
+result.summary()
