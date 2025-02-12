@@ -1,4 +1,5 @@
 import statistics
+import json
 
 from datetime import date, datetime
 from numbers import Number
@@ -14,35 +15,17 @@ from rich.table import Table
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-def transpose_matrix(matrix: list[list]) -> list[list]:
-    return [list(row) for row in zip(*matrix)]
-
 def aggregate_basic(values: list[Number], measure: str) -> Number:
     if measure == 'max':
         return max(values)
     if measure == 'min':
         return min(values)
-    return sum(values)
+    return round(sum(values), 1)
 
 def aggregate_stat(values: list[Number], measure: str) -> Number:
     operation = getattr(statistics, measure)
     result = operation(values)
-    return round(result, 2)
-
-def print_rich_table(table_data):
-
-    table = Table()
-    columns = table_data[0]
-    for column in columns:
-        style = 'bright_magenta'
-        if column == 'date': style="green"
-        table.add_column(column, justify="right", style=style, no_wrap=True)
-
-    for row in table_data[1:]:
-        table.add_row(*row)
-
-    console = Console()
-    console.print(table)
+    return round(result, 1)
 
 class DateUtil:
 
@@ -97,7 +80,7 @@ class MetricInfo:
     
     def __init__(self, name: str, callback, file_extension: str, 
                  include_named_nodes: bool, include_unnamed_nodes: bool,
-                 categorical: bool, aggregate: str):
+                 categorical: bool, aggregate: str, group: str):
         
         self._name = name
         self.callback = callback
@@ -106,12 +89,19 @@ class MetricInfo:
         self.include_unnamed_nodes = include_unnamed_nodes
         self.categorical = categorical
         self.aggregate = aggregate
+        self._group = group
 
     @property
     def name(self):
         if self._name is None:
             return self.callback.__name__
-        return self._name
+        return self._name.strip()
+    
+    @property
+    def group(self):
+        if self._group is None:
+            return self.name
+        return self._group.strip()
     
 class ParsedFile:
 
@@ -238,43 +228,45 @@ class Result:
     def __init__(self, date_unit: str):
         DateUtil.date_unit = date_unit
         self.project_results: list[ProjectResult] = []
-        self.metrics = MetricsAggregatorInfo()
+        self.metrics_meta = MetricsMeta()
 
     @property
     def metric_names(self) -> list[str]:
-        return self.metrics.names
+        return self.metrics_meta.names
     
     @property
-    def dates(self):
+    def metric_dates(self) -> list[str]:
         return DateUtil.formatted_dates(self._date_steps())
     
-    def add_metric(self, name: str, aggregate: str):
-        self.metrics.add(name, aggregate)
+    @property
+    def metric_groups(self):
+        return self.metrics_meta._groups_and_names
+    
+    def add_metric_aggregate(self, name: str, aggregate: str):
+        self.metrics_meta.add_metric_aggregate(name, aggregate)
+
+    def add_metric_group(self, name: str, group: str):
+        self.metrics_meta.add_metric_group(name, group)
 
     def add_project_result(self, project_result: ProjectResult):
         self.project_results.append(project_result)
     
     def evolutions(self) -> list[MetricEvolution]:
         metric_evolutions = []
-        for metric_name, metric_agg in self.metrics.names_and_aggregates:
+        for metric_name, metric_agg in self.metrics_meta.names_and_aggregates:
             metric_evo = self._metric_evolution(metric_name, metric_agg)
             metric_evolutions.append(metric_evo)
         return metric_evolutions
+    
+    def as_html(self):
+        return HtmlReport(self).generate_html()
 
-    def as_table(self) -> list[list[str]]:
-        header = ['date'] + self.metric_names
-        t_values = transpose_matrix(self._values())
-        assert len(header) == len(t_values[0])
-        t_values.insert(0, header)
-        return t_values
+    def as_table(self):
+        return TableReport(self).generate_table()
     
-    def as_table2(self) -> list[list[str]]:
-        return transpose_matrix(self.as_table())
-    
-    def _values(self) -> list[list[str]]:
-        values = [evo.values_as_str for evo in self.evolutions()]
-        values.insert(0, self.dates)
-        return values
+    def as_rich_table(self):
+        table_data = TableReport(self).generate_table()
+        RichTableReport(table_data).print()
     
     def _date_steps(self) -> list[date]:
         dates = set()
@@ -288,10 +280,10 @@ class Result:
         if len(self.project_results) == 1:
             project = self.project_results[0]
             values = project.metric_evolution(metric_name).values
-            return MetricEvolution(metric_name, self.dates, values)
+            return MetricEvolution(metric_name, self.metric_dates, values)
 
         # If multiples projects, we need to aggregate the values...
-        values_by_date = {date: [] for date in self.dates}
+        values_by_date = {date: [] for date in self.metric_dates}
 
         for project_result in self.project_results:
             metric_evolution = project_result.metric_evolution(metric_name)
@@ -311,25 +303,31 @@ class Result:
             assert value is not None
             values.append(value)
 
-        return MetricEvolution(metric_name, self.dates, values)
+        return MetricEvolution(metric_name, self.metric_dates, values)
 
-class MetricsAggregatorInfo:
+class MetricsMeta:
 
     def __init__(self):
-        self.data: dict[str, str] = {}
+        self._names_and_aggregates: dict[str, str] = {}
+        self._groups_and_names: dict[str, set] = {}
 
     @property
     def names(self) -> list[str]:
-        return list(self.data.keys())
+        return list(self._names_and_aggregates.keys())
     
     @property
     def names_and_aggregates(self):
-        return self.data.items()
+        return self._names_and_aggregates.items()
 
-    def add(self, name: str, aggregate: str):
-        if name in self.data:
+    def add_metric_aggregate(self, name: str, aggregate: str):
+        if name in self._names_and_aggregates:
             return
-        self.data[name] = aggregate
+        self._names_and_aggregates[name] = aggregate
+
+    def add_metric_group(self, name: str, group: str):
+        if group not in self._groups_and_names:
+            self._groups_and_names[group] = {name}
+        self._groups_and_names[group].add(name)
                 
 class GitEvo:
 
@@ -356,7 +354,8 @@ class GitEvo:
                include_named_nodes: bool = True, 
                include_unnamed_nodes: bool = False, 
                categorical: bool = False, 
-               aggregate: str = 'sum'):
+               aggregate: str = 'sum',
+               group: str | None = None):
         
         def decorator(func):
             self.registered_metrics.append(
@@ -366,7 +365,8 @@ class GitEvo:
                            include_named_nodes=include_named_nodes,
                            include_unnamed_nodes=include_unnamed_nodes,
                            categorical=categorical,
-                           aggregate=aggregate))
+                           aggregate=aggregate,
+                           group=group))
             return func
         return decorator
     
@@ -383,8 +383,10 @@ class GitEvo:
                 raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min')
 
             if not metric_info.categorical:
-                result.add_metric(metric_info.name, metric_info.aggregate)
-
+                metric_name = metric_info.name
+                result.add_metric_aggregate(metric_name, metric_info.aggregate)
+                result.add_metric_group(metric_name, metric_info.group)
+                
         project_result = None
         project_name = ''
         project_commits = set()
@@ -429,7 +431,8 @@ class GitEvo:
                         assert isinstance(name, str), f'categorical metric {metric_info.name} should return list of strings'
                         metric_result = MetricResult(name=name, value=value, date=commit_result.date)
                         commit_result.add_metric_result(metric_result)
-                        result.add_metric(name, metric_info.aggregate)
+                        result.add_metric_aggregate(name, metric_info.aggregate)
+                        result.add_metric_group(name, metric_info.group)
                 
                 # Process Numerical metrics
                 else:
@@ -481,6 +484,170 @@ class BadDateUnit(Exception):
 class BadLOCMeasure(Exception):
     pass
 
+class RichTableReport:
+
+    def __init__(self, table_data: list[list[str]]):
+        self.table_data = table_data
+
+    def print(self):
+        table = Table()
+        columns = self.table_data[0]
+        for column in columns:
+            style = 'bright_magenta'
+            if column == 'date': style="green"
+            table.add_column(column, justify="right", style=style, no_wrap=True)
+
+        for row in self.table_data[1:]:
+            table.add_row(*row)
+
+        console = Console()
+        console.print(table)
+
+class TableReport:
+
+    DATE_COLUMN_NAME = 'date'
+    
+    def __init__(self, result: Result):
+        self.metric_names = result.metric_names
+        self.metric_dates = result.metric_dates
+        self.evolutions = result.evolutions()
+    
+    def generate_table(self) -> list[list[str]]:
+        header = self._header()
+        t_values = self.transpose_matrix(self._values())
+        assert len(header) == len(t_values[0])
+        t_values.insert(0, header)
+        return t_values
+    
+    def generate_table2(self) -> list[list[str]]:
+        return self.transpose_matrix(self.generate_table())
+
+    def transpose_matrix(self, matrix: list[list]) -> list[list]:
+        return [list(row) for row in zip(*matrix)]
+    
+    def _header(self) -> list[str]:
+        return [self.DATE_COLUMN_NAME] + self.metric_names
+    
+    def _values(self) -> list[list[str]]:
+        values = [evo.values_as_str for evo in self.evolutions]
+        values.insert(0, self.metric_dates)
+        return values
+    
+class Chart:
+
+    background_colors = ["#36A2EB80", "#FF638480", "#FF9F4080", "#FFCE5680", "#4BC0C080", "#9966FF80", "#C9CBCF80"]
+
+    def __init__(self, title: str, metric_names: list[str], metric_dates: list[str], evolutions: list[MetricEvolution]):
+        assert len(metric_names) == len(evolutions)
+        self.title = title
+        self.metric_names = metric_names
+        self.metric_dates = metric_dates
+        self.evolutions = evolutions
+        
+    def evo_dict(self) -> dict:
+        return {
+            'title': self.title,
+            'type': 'line',
+            'display_legend': self.has_multi_metrics,
+            'labels': self.metric_dates,
+            'datasets': self._evo_datasets()
+        }
+    
+    def version_dict(self, chart_type: str = 'bar') -> dict:
+        last_date = self.metric_dates[-1]
+        return {
+            'title': f'{self.title} ({last_date})',
+            'type': chart_type,
+            'display_legend': False if chart_type == 'bar' else True,
+            'labels': self._version_labels(),
+            'datasets': self._version_dataset()
+        }
+    
+    @property
+    def has_single_metric(self):
+        return len(self.evolutions) == 1
+    
+    @property
+    def has_multi_metrics(self):
+        return not self.has_single_metric
+    
+    def _version_labels(self) -> list[str]:
+        return [evo.name for evo in self.evolutions]
+    
+    def _version_dataset(self) -> list[Number]:
+        # Get the most recent metric values (this year) 
+        return [{'data': [evo.values[-1] for evo in self.evolutions], 
+                 'backgroundColor': self.background_colors}]
+    
+    def _evo_datasets(self) -> list:
+        if self.has_single_metric:
+            return [{'data': self.evolutions[0].values}]
+        
+        return [{'label': evo.name, 
+                 'data': evo.values} for evo in self.evolutions]
+
+class HtmlReport:
+
+    HTML_FILENAME = 'index.html'
+    TEMPLATE_HTML_FILENAME = 'template.html'
+
+    JSON_DATA_PLACEHOLDER = '{{JSON_DATA}}'
+    TITLE_PLACEHOLDER = '{{TITLE}}'
+    NOTE_PLACEHOLDER = '{{NOTE}}'
+
+    def __init__(self, result: Result):
+        self.metric_names = result.metric_names
+        self.metric_dates = result.metric_dates
+        self.metric_groups = result.metric_groups
+        self.evolutions = result.evolutions()
+
+    def generate_html(self):
+        json_data = self._json_data()
+        template = self._read_template()
+        content = self._replace_json_data(template, json_data)
+        content = self._replace_title(content, 'WOW')
+        self._write_html(content)
+
+    def _json_data(self):
+        return self._build_charts()
+
+    def _build_charts(self) -> list[dict]:
+        charts = []
+        for group_name, metric_names in self.metric_groups.items():
+            evolutions = self._find_metric_evolutions(metric_names)
+            
+            # Build evolution chart
+            evo_chart = Chart(group_name, metric_names, self.metric_dates, evolutions)
+            charts.append(evo_chart.evo_dict())
+
+            # Build version chart if there are multiple metrics in evo chart
+            if evo_chart.has_multi_metrics:
+                charts.append(evo_chart.version_dict())
+
+        return charts
+            
+    def _find_metric_evolutions(self, metric_names):
+        return [evolution for evolution in self.evolutions if evolution.name in metric_names]
+    
+    def _read_template(self):
+        with open(self.TEMPLATE_HTML_FILENAME, 'r') as template_file:
+            template = template_file.read()
+        return template
+
+    def _write_html(self, html_content):
+        with open(self.HTML_FILENAME, 'w') as output_file:
+            output_file.write(html_content)
+
+    def _replace_json_data(self, source, json_data):
+        return source.replace(self.JSON_DATA_PLACEHOLDER, json.dumps(json_data, indent=3))
+
+    def _replace_title(self, source, content):
+        return source.replace(self.TITLE_PLACEHOLDER, content)
+
+    def _replace_note(self, source, content):
+        return source.replace(self.NOTE_PLACEHOLDER, content)
+
+
 # projects = ['git/FastAPI-template']
 # projects = ['git/full-stack-fastapi-template']
 # projects = ['git/dispatch']
@@ -491,59 +658,58 @@ projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
 
 evo = GitEvo(projects=projects, file_extension='.py', date_unit='year')
 
-@evo.metric('python_files', aggregate='sum')
+@evo.metric('Number of nodes', aggregate='sum')
+def unnamed_nodes(commit: ParsedCommit):
+    return commit.count_nodes()
+
+@evo.metric('All files', aggregate='sum', group='Files')
 def python_files(commit: ParsedCommit):
     return len(commit.parsed_files)
 
-@evo.metric('test_files', aggregate='sum')
+@evo.metric('Test files', aggregate='sum', group='Files')
 def test_files(commit: ParsedCommit):
     return len([file.name for file in commit.parsed_files if 'test' in file.path])
 
-# @evo.metric('nodes', categorical=True, aggregate='sum')
-# def unnamed_nodes(commit: ParsedCommit):
-#     return commit.node_types()
+@evo.metric('Number of imports')
+def all_imports(commit: ParsedCommit):
+    import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
+    return commit.count_nodes(import_nodes)
 
-@evo.metric(name='imports', categorical=True)
+@evo.metric('Imports', categorical=True, group='Types of Import')
 def imports(commit: ParsedCommit):
     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
-# @evo.metric(name='all_imports')
-# def all_imports(commit: ParsedCommit):
-#     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return commit.count_nodes(import_nodes)
-
-# @evo.metric(name='import_from_statement')
+# @evo.metric('import_from_statement', group='Types of Import')
 # def import_from_statement(commit: ParsedCommit):
 #     return commit.count_nodes(['import_from_statement'])
 
-# @evo.metric(name='import_statement')
+# @evo.metric('import_statement', group='Types of Import')
 # def import_statement(commit: ParsedCommit):
 #     return commit.count_nodes(['import_statement'])
 
-# @evo.metric(name='future_import_statement')
+# @evo.metric('future_import_statement', group='Types of Import')
 # def future_import_statement(commit: ParsedCommit):
 #     return commit.count_nodes(['future_import_statement'])
 
-# @evo.metric(name='class_definition', aggregate='sum')
-# def decorated(commit: ParsedCommit):
-#     return commit.count_nodes(['class_definition'])
+@evo.metric('Number of functions', aggregate='sum', group='Entities')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['function_definition'])
 
-# @evo.metric(name='function_definition', aggregate='sum')
-# def decorated(commit: ParsedCommit):
-#     return commit.count_nodes(['function_definition'])
+@evo.metric('Number of classes', aggregate='sum', group='Entities')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['class_definition'])
 
-# @evo.metric(name='decorated')
-# def decorated(commit: ParsedCommit):
-#     return commit.count_nodes(['decorated_definition'])
+@evo.metric('Decorated definitions', aggregate='sum')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['decorated_definition'])
 
-# @evo.metric(name='classes (LOC)')
-# def classes(commit: ParsedCommit):
-#     return commit.loc('class_definition', 'median')
+@evo.metric('Functions', aggregate='median', group='LOC')
+def functions(commit: ParsedCommit):
+    return commit.loc('function_definition', 'median')
 
-# @evo.metric('functions (LOC)')
-# def functions(commit: ParsedCommit):
-#     return commit.loc('function_definition', 'mean')
+@evo.metric('Classes', aggregate='median', group='LOC')
+def classes(commit: ParsedCommit):
+    return commit.loc('class_definition', 'median')
 
 result = evo.compute()
-table = result.as_table2()
-print_rich_table(table)
+table = result.as_html()

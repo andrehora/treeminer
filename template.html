@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>State of FastAPI</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://unpkg.com/tabulator-tables@6.3.1/dist/css/tabulator.min.css" rel="stylesheet">
+  <script type="text/javascript" src="https://unpkg.com/tabulator-tables@6.3.1/dist/js/tabulator.min.js"></script>
+</head>
+<body>
+	
+  <div style="width: 100%; max-width: 700px; margin: 0 auto; text-align: center; background: #FFFFF">
+	  <p>{{NOTE}}</p>
+	  <hr>
+	  <h1 href="#1" style="font-size: 50px;">{{TITLE}}</h1>
+   	  <div id="chart-wrapper"></div>
+	  <hr>
+	  <p>{{NOTE}}</p>
+  </div>
+
+  <script id="jsonData" type="application/json">
+    {{JSON_DATA}}
+  </script>
+
+  <script>		
+
+      try {
+
+        const jsonDataElement = document.getElementById('jsonData');
+        const jsonData = JSON.parse(jsonDataElement.textContent);
+        const chartWrapper = document.getElementById('chart-wrapper');
+
+        // Generate charts
+        jsonData.forEach((chartData, index) => {
+		
+		  const hr = document.createElement("hr");
+		  chartWrapper.appendChild(hr);
+		  
+          // Create chart canvas
+          const canvas = document.createElement('canvas');
+          canvas.id = `chart-${index}`;
+          chartWrapper.appendChild(canvas);
+		  
+          // Create the chart
+          new Chart(canvas, {
+            type: chartData.type,
+            data: {
+              labels: chartData.labels,
+              datasets: chartData.datasets,
+            },
+            options: {
+              responsive: true,
+              plugins: {
+		        colors: {
+		          enabled: true,
+		        },
+                legend: {
+                  display: chartData.display_legend,
+                },
+                tooltip: {
+                  enabled: true,
+				  animation: false,
+                },
+                title: {
+                  display: true,
+                  text: chartData.title,
+				  font: {
+					  size: 20
+				  }
+                },
+                subtitle: {
+                  display: true,
+                  text: chartData.subtitle,
+                }
+              }
+            }
+          });
+        });
+      } catch (error) {
+        console.error('Error loading JSON data:', error);
+      }
+    // loadAndRenderCharts();
+  </script>
+</body>
+</html>
