@@ -542,7 +542,7 @@ class Chart:
         self.title = title
         self.metric_names = metric_names
         self.metric_dates = metric_dates
-        self.evolutions = evolutions
+        self.evolutions = sorted(evolutions, key=lambda evo: evo.values[-1], reverse=True)
         
     def evo_dict(self) -> dict:
         return {
@@ -553,7 +553,7 @@ class Chart:
             'datasets': self._evo_datasets()
         }
     
-    def version_dict(self, chart_type: str = 'bar') -> dict:
+    def version_dict(self, chart_type: str = 'doughnut') -> dict:
         last_date = self.metric_dates[-1]
         return {
             'title': f'{self.title} ({last_date})',
@@ -652,64 +652,121 @@ class HtmlReport:
 # projects = ['git/full-stack-fastapi-template']
 # projects = ['git/dispatch']
 # projects = ['git/fastapi']
-projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
-# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
+# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
+projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
 
 
 evo = GitEvo(projects=projects, file_extension='.py', date_unit='year')
 
-@evo.metric('Number of nodes', aggregate='sum')
-def unnamed_nodes(commit: ParsedCommit):
-    return commit.count_nodes()
+@evo.metric('data structure', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['dictionary', 'list', 'set', 'tuple'])
 
-@evo.metric('All files', aggregate='sum', group='Files')
-def python_files(commit: ParsedCommit):
-    return len(commit.parsed_files)
+@evo.metric('control flow', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
 
-@evo.metric('Test files', aggregate='sum', group='Files')
-def test_files(commit: ParsedCommit):
-    return len([file.name for file in commit.parsed_files if 'test' in file.path])
+@evo.metric('for vs. while', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['for_statement', 'while_statement'])
 
-@evo.metric('Number of imports')
-def all_imports(commit: ParsedCommit):
-    import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-    return commit.count_nodes(import_nodes)
+@evo.metric('continue vs. break', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['break_statement', 'continue_statement'])
 
-@evo.metric('Imports', categorical=True, group='Types of Import')
+@evo.metric('exceptions', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['try_statement', 'raise_statement'])
+
+@evo.metric('return vs. yield', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['return_statement', 'yield'])
+
+@evo.metric('function vs. class', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['class_definition', 'function_definition'])
+
+@evo.metric('import type', categorical=True)
 def imports(commit: ParsedCommit):
     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
-# @evo.metric('import_from_statement', group='Types of Import')
-# def import_from_statement(commit: ParsedCommit):
-#     return commit.count_nodes(['import_from_statement'])
-
-# @evo.metric('import_statement', group='Types of Import')
-# def import_statement(commit: ParsedCommit):
-#     return commit.count_nodes(['import_statement'])
-
-# @evo.metric('future_import_statement', group='Types of Import')
-# def future_import_statement(commit: ParsedCommit):
-#     return commit.count_nodes(['future_import_statement'])
-
-@evo.metric('Number of functions', aggregate='sum', group='Entities')
+@evo.metric('typed and default parameter', aggregate='sum', categorical=True)
 def decorated(commit: ParsedCommit):
-    return commit.count_nodes(['function_definition'])
+    return commit.node_types(['default_parameter', 'typed_parameter', 'typed_default_parameter'])
 
-@evo.metric('Number of classes', aggregate='sum', group='Entities')
+@evo.metric('parameter dictionary vs. list splat pattern', aggregate='sum', categorical=True)
 def decorated(commit: ParsedCommit):
-    return commit.count_nodes(['class_definition'])
+    return commit.node_types(['dictionary_splat_pattern', 'list_splat_pattern'])
 
-@evo.metric('Decorated definitions', aggregate='sum')
+@evo.metric('assert', aggregate='sum')
 def decorated(commit: ParsedCommit):
-    return commit.count_nodes(['decorated_definition'])
+    return commit.count_nodes(['assert_statement'])
 
-@evo.metric('Functions', aggregate='median', group='LOC')
-def functions(commit: ParsedCommit):
-    return commit.loc('function_definition', 'median')
+@evo.metric('lambda', aggregate='sum')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['lambda'])
 
-@evo.metric('Classes', aggregate='median', group='LOC')
-def classes(commit: ParsedCommit):
-    return commit.loc('class_definition', 'median')
+@evo.metric('delete', aggregate='sum')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['delete_statement'])
+
+@evo.metric('await', aggregate='sum')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['await'])
+
+@evo.metric('pass', aggregate='sum')
+def decorated(commit: ParsedCommit):
+    return commit.count_nodes(['pass_statement'])
+
+@evo.metric('comprehension', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['dictionary_comprehension', 'list_comprehension', 'set_comprehension'])
+
+@evo.metric('integer vs. float', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['integer', 'float'])
+
+@evo.metric('True vs. False', aggregate='sum', categorical=True)
+def decorated(commit: ParsedCommit):
+    return commit.node_types(['true', 'false'])
+
+
+# @evo.metric('Number of nodes', aggregate='sum')
+# def unnamed_nodes(commit: ParsedCommit):
+#     return commit.count_nodes()
+
+# @evo.metric('All files', aggregate='sum', group='Files')
+# def python_files(commit: ParsedCommit):
+#     return len(commit.parsed_files)
+
+# @evo.metric('Test files', aggregate='sum', group='Files')
+# def test_files(commit: ParsedCommit):
+#     return len([file.name for file in commit.parsed_files if 'test' in file.path])
+
+# @evo.metric('Number of imports')
+# def all_imports(commit: ParsedCommit):
+#     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
+#     return commit.count_nodes(import_nodes)
+
+# @evo.metric('Imports', categorical=True, group='Types of Import')
+# def imports(commit: ParsedCommit):
+#     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
+
+# @evo.metric('Number of classes', aggregate='sum', group='Entities')
+# def decorated(commit: ParsedCommit):
+#     return commit.count_nodes(['class_definition'])
+
+# @evo.metric('Number of functions', aggregate='sum', group='Entities')
+# def decorated(commit: ParsedCommit):
+#     return commit.count_nodes(['function_definition'])
+
+# @evo.metric('Classes', aggregate='median', group='LOC')
+# def classes(commit: ParsedCommit):
+#     return commit.loc('class_definition', 'median')
+
+# @evo.metric('Functions', aggregate='median', group='LOC')
+# def functions(commit: ParsedCommit):
+#     return commit.loc('function_definition', 'median')
 
 result = evo.compute()
 table = result.as_html()
