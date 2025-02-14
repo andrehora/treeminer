@@ -79,14 +79,11 @@ class DateUtil:
 class MetricInfo:
     
     def __init__(self, name: str, callback, file_extension: str, 
-                 include_named_nodes: bool, include_unnamed_nodes: bool,
                  categorical: bool, aggregate: str, group: str):
         
         self._name = name
         self.callback = callback
         self.file_extension = file_extension
-        self.include_named_nodes = include_named_nodes
-        self.include_unnamed_nodes = include_unnamed_nodes
         self.categorical = categorical
         self.aggregate = aggregate
         self._group = group
@@ -347,12 +344,11 @@ class GitEvo:
         self.registered_metrics: list[MetricInfo] = []
         self.analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
+        self._parsed_commit: dict[str, ParsedCommit] = {}
 
     def metric(self, name: str = None,
                *,
                file_extension: str | None = None, 
-               include_named_nodes: bool = True, 
-               include_unnamed_nodes: bool = False, 
                categorical: bool = False, 
                aggregate: str = 'sum',
                group: str | None = None):
@@ -362,8 +358,6 @@ class GitEvo:
                 MetricInfo(name=name, 
                            callback=func,
                            file_extension=file_extension,
-                           include_named_nodes=include_named_nodes,
-                           include_unnamed_nodes=include_unnamed_nodes,
                            categorical=categorical,
                            aggregate=aggregate,
                            group=group))
@@ -382,18 +376,22 @@ class GitEvo:
             if metric_info.aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
                 raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min')
 
-            if not metric_info.categorical:
-                metric_name = metric_info.name
-                result.add_metric_aggregate(metric_name, metric_info.aggregate)
-                result.add_metric_group(metric_name, metric_info.group)
+            # if not metric_info.categorical:
+            #     metric_name = metric_info.name
+            #     result.add_metric_aggregate(metric_name, metric_info.aggregate)
+            #     result.add_metric_group(metric_name, metric_info.group)
                 
         project_result = None
         project_name = ''
         project_commits = set()
         for commit in self._repo.commits:
+            
+            # Used to cache parsed commit per extension
+            self._parsed_commit = {}
 
             # Create new project result if new project name
             if project_name != commit.project_name:
+                print(f'Analyzing {commit.project_name}')
                 project_name = commit.project_name
                 project_commits = set()
                 project_result = ProjectResult(commit.project_name)
@@ -415,11 +413,10 @@ class GitEvo:
             for metric_info in self.registered_metrics:
                 
                 # Create parsed commit
-                parsed_commit = self._create_parsed_commit(commit, metric_info)
+                parsed_commit = self._ensure_parsed_commit(commit, metric_info.file_extension)
                 
                 # Run the metric callback
                 metric_value = metric_info.callback(parsed_commit)
-                metric_name = metric_info.name
 
                 # Process categorical metrics
                 if metric_info.categorical: 
@@ -431,39 +428,44 @@ class GitEvo:
                         assert isinstance(name, str), f'categorical metric {metric_info.name} should return list of strings'
                         metric_result = MetricResult(name=name, value=value, date=commit_result.date)
                         commit_result.add_metric_result(metric_result)
+                        
                         result.add_metric_aggregate(name, metric_info.aggregate)
                         result.add_metric_group(name, metric_info.group)
                 
-                # Process Numerical metrics
+                # Process numerical metrics
                 else:
                     
                     if not isinstance(metric_value, (int, float)):
                         raise BadReturnType(f'numerical metric {metric_info.name} should return int or float')
 
-                    metric_result = MetricResult(name=metric_name, value=metric_value, date=commit_result.date)
+                    metric_result = MetricResult(name=metric_info.name, value=metric_value, date=commit_result.date)
                     commit_result.add_metric_result(metric_result)
-        
+
+                    result.add_metric_aggregate(metric_info.name, metric_info.aggregate)
+                    result.add_metric_group(metric_info.name, metric_info.group)
+
+            print(f'- Date: {selected_date}, commit: {commit.hash}, processed files: {self._file_stats()}')
             project_result.add_commit_result(commit_result)
         
         return result
+    
+    def _file_stats(self):
+        file_stats = [f'{extension} {len(pc.parsed_files)}' for extension, pc in self._parsed_commit.items()]
+        return ' '.join(file_stats)
+    
+    def _ensure_parsed_commit(self, commit: Commit, file_extension: str) -> ParsedCommit:
 
-    def _create_parsed_commit(self, commit: Commit, metric_info: MetricInfo) -> ParsedCommit:
+        if file_extension is None:
+            file_extension = self.global_file_extension
+
+        if file_extension not in self._parsed_commit:
+            self._parsed_commit[file_extension] = self._create_parsed_commit(commit, file_extension)
+        return self._parsed_commit[file_extension]
+
+    def _create_parsed_commit(self, commit: Commit, file_extension: str) -> ParsedCommit:
         parsed_files = []
-
-        file_extension = metric_info.file_extension
-        named_nodes = metric_info.include_named_nodes
-        unnamed_nodes = metric_info.include_unnamed_nodes
-
-        if file_extension is not None: target_extension = file_extension
-        else: target_extension = self.global_file_extension
-
-        for file in commit.all_files([target_extension]):
-            
-            file_nodes = []
-            if named_nodes and unnamed_nodes: file_nodes = [node for node in file.tree_nodes]
-            elif named_nodes: file_nodes = [node for node in file.tree_nodes if node.is_named]
-            elif unnamed_nodes: file_nodes = [node for node in file.tree_nodes if not node.is_named]
-
+        for file in commit.all_files([file_extension]):
+            file_nodes = [node for node in file.tree_nodes]
             parsed_file = ParsedFile(file.filename, file.path, file_nodes)
             parsed_files.append(parsed_file)
 
@@ -535,7 +537,7 @@ class TableReport:
     
 class Chart:
 
-    background_colors = ["#36A2EB80", "#FF638480", "#FF9F4080", "#FFCE5680", "#4BC0C080", "#9966FF80", "#C9CBCF80"]
+    colors = ["#36A2EB80", "#FF638480", "#FF9F4080", "#FFCE5680", "#4BC0C080", "#9966FF80", "#C9CBCF80"]
 
     def __init__(self, title: str, metric_names: list[str], metric_dates: list[str], evolutions: list[MetricEvolution]):
         assert len(metric_names) == len(evolutions)
@@ -556,7 +558,7 @@ class Chart:
     def version_dict(self, chart_type: str = 'doughnut') -> dict:
         last_date = self.metric_dates[-1]
         return {
-            'title': f'{self.title} ({last_date})',
+            'title': f'{self.title} in {last_date} (%)',
             'type': chart_type,
             'display_legend': False if chart_type == 'bar' else True,
             'labels': self._version_labels(),
@@ -576,8 +578,9 @@ class Chart:
     
     def _version_dataset(self) -> list[Number]:
         # Get the most recent metric values (this year) 
-        return [{'data': [evo.values[-1] for evo in self.evolutions], 
-                 'backgroundColor': self.background_colors}]
+        total = sum([evo.values[-1] for evo in self.evolutions])
+        ratios = [round(evo.values[-1]/total*100, 0) for evo in self.evolutions]
+        return [{'data': ratios}]
     
     def _evo_datasets(self) -> list:
         if self.has_single_metric:
@@ -585,6 +588,7 @@ class Chart:
         
         return [{'label': evo.name, 
                  'data': evo.values} for evo in self.evolutions]
+        
 
 class HtmlReport:
 
@@ -593,7 +597,7 @@ class HtmlReport:
 
     JSON_DATA_PLACEHOLDER = '{{JSON_DATA}}'
     TITLE_PLACEHOLDER = '{{TITLE}}'
-    NOTE_PLACEHOLDER = '{{NOTE}}'
+    CREATED_DATE_PLACEHOLDER = '{{CREATED_DATE}}'
 
     def __init__(self, result: Result):
         self.metric_names = result.metric_names
@@ -605,7 +609,8 @@ class HtmlReport:
         json_data = self._json_data()
         template = self._read_template()
         content = self._replace_json_data(template, json_data)
-        content = self._replace_title(content, 'WOW')
+        content = self._replace_title(content, 'Python syntax and features')
+        content = self._replace_created_date(content)
         self._write_html(content)
 
     def _json_data(self):
@@ -644,91 +649,90 @@ class HtmlReport:
     def _replace_title(self, source, content):
         return source.replace(self.TITLE_PLACEHOLDER, content)
 
-    def _replace_note(self, source, content):
-        return source.replace(self.NOTE_PLACEHOLDER, content)
+    def _replace_created_date(self, source):
+        now = str(datetime.now().astimezone())
+        return source.replace(self.CREATED_DATE_PLACEHOLDER, now)
 
-
+# projects = ['git/cpython']
 # projects = ['git/FastAPI-template']
-# projects = ['git/full-stack-fastapi-template']
-# projects = ['git/dispatch']
-# projects = ['git/fastapi']
-# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
-projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
+projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
+# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
+# projects = projects + ['git/pytorch', 'git/ansible', 'git/core', 'git/django', 'git/rich', 'git/requests', 'git/cpython']
 
 
-evo = GitEvo(projects=projects, file_extension='.py', date_unit='year')
+evo = GitEvo(projects=projects, file_extension='.py', date_unit='year', since_year=2020)
 
-@evo.metric('data structure', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
+@evo.metric('Analyzed files', aggregate='sum', file_extension='.py')
+def files(commit: ParsedCommit):
+    return len(commit.parsed_files)
+
+@evo.metric('Most used data structures', aggregate='sum', categorical=True)
+def data_structure(commit: ParsedCommit):
     return commit.node_types(['dictionary', 'list', 'set', 'tuple'])
 
-@evo.metric('control flow', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
+@evo.metric('Most used comprehensions', aggregate='sum', categorical=True)
+def comprehension(commit: ParsedCommit):
+    return commit.node_types(['dictionary_comprehension', 'list_comprehension', 'set_comprehension'])
+
+@evo.metric('Most used control flows', aggregate='sum', categorical=True)
+def control_flow(commit: ParsedCommit):
     return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
 
-@evo.metric('for vs. while', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
-    return commit.node_types(['for_statement', 'while_statement'])
+# @evo.metric('for vs. while', aggregate='sum', categorical=True)
+# def for_while(commit: ParsedCommit):
+#     return commit.node_types(['for_statement', 'while_statement'])
 
 @evo.metric('continue vs. break', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
+def continue_break(commit: ParsedCommit):
     return commit.node_types(['break_statement', 'continue_statement'])
 
-@evo.metric('exceptions', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
-    return commit.node_types(['try_statement', 'raise_statement'])
+@evo.metric('integer vs. float', aggregate='sum', categorical=True)
+def int_float(commit: ParsedCommit):
+    return commit.node_types(['integer', 'float'])
+
+@evo.metric('Function LOC (median)', aggregate='median')
+def functions(commit: ParsedCommit):
+    return commit.loc('function_definition', 'median')
 
 @evo.metric('return vs. yield', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
+def return_yield(commit: ParsedCommit):
     return commit.node_types(['return_statement', 'yield'])
 
-@evo.metric('function vs. class', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
-    return commit.node_types(['class_definition', 'function_definition'])
+@evo.metric('Exceptions', aggregate='sum', categorical=True)
+def exceptions(commit: ParsedCommit):
+    return commit.node_types(['try_statement', 'raise_statement'])
 
-@evo.metric('import type', categorical=True)
+@evo.metric('Most used import types', categorical=True)
 def imports(commit: ParsedCommit):
     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
-@evo.metric('typed and default parameter', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
+@evo.metric('Typed and default parameters', aggregate='sum', categorical=True)
+def parameter_type(commit: ParsedCommit):
     return commit.node_types(['default_parameter', 'typed_parameter', 'typed_default_parameter'])
 
-@evo.metric('parameter dictionary vs. list splat pattern', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
+@evo.metric('Parameter dictionary vs. list splat pattern', aggregate='sum', categorical=True)
+def parameter_splat_pattern(commit: ParsedCommit):
     return commit.node_types(['dictionary_splat_pattern', 'list_splat_pattern'])
 
+@evo.metric('Decorated definitions', aggregate='sum')
+def asserts(commit: ParsedCommit):
+    return commit.count_nodes(['decorated_definition'])
+
 @evo.metric('assert', aggregate='sum')
-def decorated(commit: ParsedCommit):
+def asserts(commit: ParsedCommit):
     return commit.count_nodes(['assert_statement'])
 
 @evo.metric('lambda', aggregate='sum')
-def decorated(commit: ParsedCommit):
+def lambdas(commit: ParsedCommit):
     return commit.count_nodes(['lambda'])
 
-@evo.metric('delete', aggregate='sum')
-def decorated(commit: ParsedCommit):
-    return commit.count_nodes(['delete_statement'])
-
 @evo.metric('await', aggregate='sum')
-def decorated(commit: ParsedCommit):
+def awaits(commit: ParsedCommit):
     return commit.count_nodes(['await'])
 
 @evo.metric('pass', aggregate='sum')
-def decorated(commit: ParsedCommit):
+def passes(commit: ParsedCommit):
     return commit.count_nodes(['pass_statement'])
-
-@evo.metric('comprehension', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
-    return commit.node_types(['dictionary_comprehension', 'list_comprehension', 'set_comprehension'])
-
-@evo.metric('integer vs. float', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
-    return commit.node_types(['integer', 'float'])
-
-@evo.metric('True vs. False', aggregate='sum', categorical=True)
-def decorated(commit: ParsedCommit):
-    return commit.node_types(['true', 'false'])
 
 
 # @evo.metric('Number of nodes', aggregate='sum')
