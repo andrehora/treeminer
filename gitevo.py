@@ -108,8 +108,9 @@ class MetricInfo:
     
 class BeforeCommitInfo:
 
-    def __init__(self, file_extension: str):
+    def __init__(self, file_extension: str, callback: callable):
         self.file_extension = file_extension
+        self.callback = callback
     
 class ParsedFile:
 
@@ -120,9 +121,10 @@ class ParsedFile:
 
 class ParsedCommit:
     
-    def __init__(self, hash: str, date: datetime, parsed_files: list[ParsedFile]):
+    def __init__(self, hash: str, date: datetime, file_extension: str, parsed_files: list[ParsedFile]):
         self.hash = hash
         self.date = date
+        self.file_extension = file_extension
         self.parsed_files = parsed_files
 
     @property
@@ -137,20 +139,40 @@ class ParsedCommit:
     def count_nodes(self, node_types: list[str] = None) -> int:
         if node_types is None:
             return len(self.nodes)
-        return len(self._find_nodes_by_type(node_types))
+        return len(self.find_nodes_by_type(node_types))
     
     def loc(self, node_type: str, measure: str = 'median') -> Number:
 
         if measure not in ['median', 'mean', 'mode']:
             raise BadLOCMeasure(f'LOC measure should be median, mean, or mode')
         
-        nodes = self._find_nodes_by_type([node_type])
+        nodes = self.find_nodes_by_type([node_type])
         locs = [len(as_str(node.text).split('\n')) for node in nodes]
         
         return aggregate_stat(locs, measure)
     
-    def _find_nodes_by_type(self, node_types: list[str]) -> list[Node]:
+    def find_nodes_by_type(self, node_types: list[str]) -> list[Node]:
         return [node for node in self.nodes if node.type in node_types]
+    
+    def named_children(self, node: Node) -> list[Node]:
+        return [each for each in node.children if each.is_named]
+    
+    def descendant_nodes(self, node: Node) -> list[Node]:
+        descendants = []
+        def traverse_node(current_node):
+            descendants.append(current_node)
+            for child in current_node.children:
+                traverse_node(child)
+
+        traverse_node(node)
+        return descendants
+    
+    def descendant_node_by_field_name(self, node: Node, name: str) -> Node | None:
+        for desc_node in self.descendant_nodes(node):
+            target_node = desc_node.child_by_field_name(name)
+            if target_node is not None:
+                return target_node
+        return None
 
 class MetricEvolution:
 
@@ -383,7 +405,7 @@ class GitEvo:
 
         def decorator(func):
             self.registered_before_commits.append(
-                BeforeCommitInfo(file_extension))    
+                BeforeCommitInfo(file_extension, callback=func,))    
             return func
         
         return decorator
@@ -431,14 +453,23 @@ class GitEvo:
                 continue
             project_commits.add(selected_date)
 
-            # Create and cache parsed commits for each file extension, eg, .py, .js, .java, etc
+            # Chache parsed commits for each file extension, eg, .py, .js, .java, etc
             parsed_commits = ParsedCommits(commit, self._all_file_extensions())
+            print(f'- Date: {selected_date}, commit: {commit.hash}, processed files: {parsed_commits.file_stats()}')
+            
+            # Iterate on the before commit
+            for before_commit_info in self.registered_before_commits:
+                file_extension = before_commit_info.file_extension
+                # Get parsed_commit, run the before commit callback, and update parsed_commits
+                parsed_commit = parsed_commits.get_parsed_commit_for(file_extension)
+                new_parsed_commit = before_commit_info.callback(parsed_commit)
+                parsed_commits.update_parsed_commit_for(file_extension, new_parsed_commit)
 
             # Iterate on each metric
             commit_result = CommitResult(commit.hash, commit.committer_date.date())
             for metric_info in self.registered_metrics:
                 
-                # Inject parsed_commit and run the metric callback
+                # Get parsed_commit and run the metric callback
                 parsed_commit = parsed_commits.get_parsed_commit_for(metric_info.file_extension)
                 metric_value = metric_info.callback(parsed_commit)
 
@@ -468,7 +499,6 @@ class GitEvo:
 
                     result.add_metric_aggregate(metric_info.name, metric_info.aggregate)
 
-            print(f'- Date: {selected_date}, commit: {commit.hash}, processed files: {parsed_commits.file_stats()}')
             project_result.add_commit_result(commit_result)
         
         return result
@@ -488,6 +518,9 @@ class ParsedCommits:
     def get_parsed_commit_for(self, file_extension: str) -> ParsedCommit:
         assert file_extension in self.file_extensions
         return self._parsed_commits[file_extension]
+    
+    def update_parsed_commit_for(self, file_extension: str, parsed_commit: ParsedCommit):
+        self._parsed_commits[file_extension] = parsed_commit
 
     def file_stats(self):
         file_stats = [f'{extension} {len(pc.parsed_files)}' for extension, pc in self._parsed_commits.items()]
@@ -503,7 +536,7 @@ class ParsedCommits:
             file_nodes = [node for node in file.tree_nodes]
             parsed_file = ParsedFile(file.filename, file.path, file_nodes)
             parsed_files.append(parsed_file)
-        return ParsedCommit(self.commit.hash, self.commit.committer_date, parsed_files)
+        return ParsedCommit(self.commit.hash, self.commit.committer_date, file_extension, parsed_files)
     
 class FileExtensionNotFound(Exception):
     pass
@@ -643,7 +676,8 @@ class HtmlReport:
         json_data = self._json_data()
         template = self._read_template()
         content = self._replace_json_data(template, json_data)
-        content = self._replace_title(content, 'Python syntax and features')
+        # content = self._replace_title(content, 'Python syntax and features')
+        content = self._replace_title(content, 'FastAPI')
         content = self._replace_created_date(content)
         self._write_html(content)
 
@@ -689,127 +723,115 @@ class HtmlReport:
 
 # projects = ['git/cpython']
 # projects = ['git/FastAPI-template']
-projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
-# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
+# projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
+projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template', 'git/dispatch', 'git/fastapi']
 # projects = projects + ['git/pytorch', 'git/ansible', 'git/core', 'git/django', 'git/rich', 'git/requests', 'git/cpython']
 
+
+from fastapi import FastAPICommit, Endpoint
 
 evo = GitEvo(projects=projects, file_extension='.py', date_unit='year', since_year=2020)
 
 @evo.before(file_extension='.py')
 def before(commit: ParsedCommit):
-    print('before')
-    return commit
+    return FastAPICommit(commit)
 
-@evo.metric('Analyzed files', aggregate='sum', file_extension='.js')
-def files(commit: ParsedCommit):
-    return len(commit.parsed_files)
+@evo.metric('Endpoints', aggregate='sum')
+def endpoints(fastapi: FastAPICommit):
+    return len(fastapi.endpoints())
 
-@evo.metric('Most used data structures', aggregate='sum', categorical=True)
-def data_structure(commit: ParsedCommit):
-    return commit.node_types(['dictionary', 'list', 'set', 'tuple'])
+@evo.metric('Endpoints by HTTP method', categorical=True, aggregate='sum')
+def http_methods(fastapi: FastAPICommit):
+    return [endpoint.decorator.http_method for endpoint in fastapi.endpoints()]
 
-@evo.metric('Most used comprehensions', aggregate='sum', categorical=True)
-def comprehension(commit: ParsedCommit):
-    return commit.node_types(['dictionary_comprehension', 'list_comprehension', 'set_comprehension'])
+@evo.metric('Endpoints sync vs. async', categorical=True, aggregate='sum')
+def sync_async(fastapi: FastAPICommit):
+    return [endpoint.function.sync_async() for endpoint in fastapi.endpoints()]
 
-@evo.metric('Most used control flows', aggregate='sum', categorical=True)
-def control_flow(commit: ParsedCommit):
-    return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
+@evo.metric('FastAPI imports', aggregate='sum')
+def fastapi_imports(fastapi: FastAPICommit):
+    return len(fastapi.fastapi_imports())
 
-@evo.metric('for vs. while', aggregate='sum', categorical=True)
-def for_while(commit: ParsedCommit):
-    return commit.node_types(['for_statement', 'while_statement'])
+@evo.metric('APIRouter imports', aggregate='sum')
+def apirouter_imports(fastapi: FastAPICommit):
+    return len(fastapi.apirouter_imports())
 
-@evo.metric('continue vs. break', aggregate='sum', categorical=True)
-def continue_break(commit: ParsedCommit):
-    return commit.node_types(['break_statement', 'continue_statement'])
+@evo.metric('Security imports', categorical=True, aggregate='sum')
+def security_imports(fastapi: FastAPICommit):
+    return fastapi.security_imports()
 
-@evo.metric('integer vs. float', aggregate='sum', categorical=True)
-def int_float(commit: ParsedCommit):
-    return commit.node_types(['integer', 'float'])
-
-@evo.metric('Function LOC (median)', aggregate='median')
-def functions(commit: ParsedCommit):
-    return commit.loc('function_definition', 'median')
-
-@evo.metric('return vs. yield', aggregate='sum', categorical=True)
-def return_yield(commit: ParsedCommit):
-    return commit.node_types(['return_statement', 'yield'])
-
-@evo.metric('Exceptions', aggregate='sum', categorical=True)
-def exceptions(commit: ParsedCommit):
-    return commit.node_types(['try_statement', 'raise_statement'])
-
-@evo.metric('Most used import types', categorical=True)
-def imports(commit: ParsedCommit):
-    return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
-
-@evo.metric('Typed and default parameters', aggregate='sum', categorical=True)
-def parameter_type(commit: ParsedCommit):
-    return commit.node_types(['default_parameter', 'typed_parameter', 'typed_default_parameter'])
-
-@evo.metric('Parameter dictionary vs. list splat pattern', aggregate='sum', categorical=True)
-def parameter_splat_pattern(commit: ParsedCommit):
-    return commit.node_types(['dictionary_splat_pattern', 'list_splat_pattern'])
-
-@evo.metric('Decorated definitions', aggregate='sum')
-def asserts(commit: ParsedCommit):
-    return commit.count_nodes(['decorated_definition'])
-
-@evo.metric('assert', aggregate='sum')
-def asserts(commit: ParsedCommit):
-    return commit.count_nodes(['assert_statement'])
-
-@evo.metric('lambda', aggregate='sum')
-def lambdas(commit: ParsedCommit):
-    return commit.count_nodes(['lambda'])
-
-@evo.metric('await', aggregate='sum')
-def awaits(commit: ParsedCommit):
-    return commit.count_nodes(['await'])
-
-@evo.metric('pass', aggregate='sum')
-def passes(commit: ParsedCommit):
-    return commit.count_nodes(['pass_statement'])
-
-
-# @evo.metric('Number of nodes', aggregate='sum')
-# def unnamed_nodes(commit: ParsedCommit):
-#     return commit.count_nodes()
-
-# @evo.metric('All files', aggregate='sum', group='Files')
-# def python_files(commit: ParsedCommit):
+# @evo.metric('Analyzed files', aggregate='sum', file_extension='.js')
+# def files(commit: ParsedCommit):
 #     return len(commit.parsed_files)
 
-# @evo.metric('Test files', aggregate='sum', group='Files')
-# def test_files(commit: ParsedCommit):
-#     return len([file.name for file in commit.parsed_files if 'test' in file.path])
+# @evo.metric('Most used data structures', aggregate='sum', categorical=True)
+# def data_structure(commit: ParsedCommit):
+#     return commit.node_types(['dictionary', 'list', 'set', 'tuple'])
 
-# @evo.metric('Number of imports')
-# def all_imports(commit: ParsedCommit):
-#     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
-#     return commit.count_nodes(import_nodes)
+# @evo.metric('Most used comprehensions', aggregate='sum', categorical=True)
+# def comprehension(commit: ParsedCommit):
+#     return commit.node_types(['dictionary_comprehension', 'list_comprehension', 'set_comprehension'])
 
-# @evo.metric('Imports', categorical=True, group='Types of Import')
-# def imports(commit: ParsedCommit):
-#     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
+# @evo.metric('Most used control flows', aggregate='sum', categorical=True)
+# def control_flow(commit: ParsedCommit):
+#     return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
 
-# @evo.metric('Number of classes', aggregate='sum', group='Entities')
-# def decorated(commit: ParsedCommit):
-#     return commit.count_nodes(['class_definition'])
+# @evo.metric('for vs. while', aggregate='sum', categorical=True)
+# def for_while(commit: ParsedCommit):
+#     return commit.node_types(['for_statement', 'while_statement'])
 
-# @evo.metric('Number of functions', aggregate='sum', group='Entities')
-# def decorated(commit: ParsedCommit):
-#     return commit.count_nodes(['function_definition'])
+# @evo.metric('continue vs. break', aggregate='sum', categorical=True)
+# def continue_break(commit: ParsedCommit):
+#     return commit.node_types(['break_statement', 'continue_statement'])
 
-# @evo.metric('Classes', aggregate='median', group='LOC')
-# def classes(commit: ParsedCommit):
-#     return commit.loc('class_definition', 'median')
+# @evo.metric('integer vs. float', aggregate='sum', categorical=True)
+# def int_float(commit: ParsedCommit):
+#     return commit.node_types(['integer', 'float'])
 
-# @evo.metric('Functions', aggregate='median', group='LOC')
+# @evo.metric('Function LOC (median)', aggregate='median')
 # def functions(commit: ParsedCommit):
 #     return commit.loc('function_definition', 'median')
 
+# @evo.metric('return vs. yield', aggregate='sum', categorical=True)
+# def return_yield(commit: ParsedCommit):
+#     return commit.node_types(['return_statement', 'yield'])
+
+# @evo.metric('Exceptions', aggregate='sum', categorical=True)
+# def exceptions(commit: ParsedCommit):
+#     return commit.node_types(['try_statement', 'raise_statement'])
+
+# @evo.metric('Most used import types', categorical=True)
+# def imports(commit: ParsedCommit):
+#     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
+
+# @evo.metric('Typed and default parameters', aggregate='sum', categorical=True)
+# def parameter_type(commit: ParsedCommit):
+#     return commit.node_types(['default_parameter', 'typed_parameter', 'typed_default_parameter'])
+
+# @evo.metric('Parameter dictionary vs. list splat pattern', aggregate='sum', categorical=True)
+# def parameter_splat_pattern(commit: ParsedCommit):
+#     return commit.node_types(['dictionary_splat_pattern', 'list_splat_pattern'])
+
+# @evo.metric('Decorated definitions', aggregate='sum')
+# def asserts(commit: ParsedCommit):
+#     return commit.count_nodes(['decorated_definition'])
+
+# @evo.metric('assert', aggregate='sum')
+# def asserts(commit: ParsedCommit):
+#     return commit.count_nodes(['assert_statement'])
+
+# @evo.metric('lambda', aggregate='sum')
+# def lambdas(commit: ParsedCommit):
+#     return commit.count_nodes(['lambda'])
+
+# @evo.metric('await', aggregate='sum')
+# def awaits(commit: ParsedCommit):
+#     return commit.count_nodes(['await'])
+
+# @evo.metric('pass', aggregate='sum')
+# def passes(commit: ParsedCommit):
+#     return commit.count_nodes(['pass_statement'])
+
 result = evo.compute()
+# result.as_rich_table()
 table = result.as_html()
