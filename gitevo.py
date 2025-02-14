@@ -89,16 +89,27 @@ class MetricInfo:
         self._group = group
 
     @property
-    def name(self):
+    def name(self) -> str:
         if self._name is None:
             return self.callback.__name__
         return self._name.strip()
     
     @property
-    def group(self):
+    def name_or_none_for_categorical(self) -> str | None:
+        if self.categorical:
+            return None
+        return self.name
+    
+    @property
+    def group(self) -> str:
         if self._group is None:
             return self.name
         return self._group.strip()
+    
+class BeforeCommitInfo:
+
+    def __init__(self, file_extension: str):
+        self.file_extension = file_extension
     
 class ParsedFile:
 
@@ -242,7 +253,7 @@ class Result:
     def add_metric_aggregate(self, name: str, aggregate: str):
         self.metrics_meta.add_metric_aggregate(name, aggregate)
 
-    def add_metric_group(self, name: str, group: str):
+    def add_metric_group(self, name: str | None, group: str):
         self.metrics_meta.add_metric_group(name, group)
 
     def add_project_result(self, project_result: ProjectResult):
@@ -321,7 +332,11 @@ class MetricsMeta:
             return
         self._names_and_aggregates[name] = aggregate
 
-    def add_metric_group(self, name: str, group: str):
+    def add_metric_group(self, name: str | None, group: str):
+        if name is None:
+            self._groups_and_names[group] = set()
+            return
+
         if group not in self._groups_and_names:
             self._groups_and_names[group] = {name}
         self._groups_and_names[group].add(name)
@@ -335,16 +350,15 @@ class GitEvo:
             raise BadDateUnit('date_unit must be year or month')
 
         self.projects = projects
-        self.global_file_extension = None
-        if file_extension is not None:
-            self.global_file_extension = file_extension
+        self.global_file_extension = file_extension
         self.date_unit = date_unit
         self.since_year = since_year
 
         self.registered_metrics: list[MetricInfo] = []
-        self.analyzed_commits: list[str] = []
+        self.registered_before_commits: list[BeforeCommitInfo] = []
+
+        self._analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
-        self._parsed_commit: dict[str, ParsedCommit] = {}
 
     def metric(self, name: str = None,
                *,
@@ -362,6 +376,16 @@ class GitEvo:
                            aggregate=aggregate,
                            group=group))
             return func
+        
+        return decorator
+    
+    def before(self, file_extension: str | None = None):
+
+        def decorator(func):
+            self.registered_before_commits.append(
+                BeforeCommitInfo(file_extension))    
+            return func
+        
         return decorator
     
     def compute(self) -> Result:
@@ -371,24 +395,23 @@ class GitEvo:
         for metric_info in self.registered_metrics:
 
             if self.global_file_extension is None and metric_info.file_extension is None:
-                raise FileExtensionNotFound(f'file_extension should be defined in metric {metric_info.name}')
+                raise FileExtensionNotFound(f'file_extension should be defined globally or in metric {metric_info.name}')
             
             if metric_info.aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
                 raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min')
-
-            # if not metric_info.categorical:
-            #     metric_name = metric_info.name
-            #     result.add_metric_aggregate(metric_name, metric_info.aggregate)
-            #     result.add_metric_group(metric_name, metric_info.group)
+            
+            if metric_info.file_extension is None:
+                metric_info.file_extension = self.global_file_extension
+            
+            # Real names of the categorical metrics are known only at runtime, thus, now register None
+            result.add_metric_group(metric_info.name_or_none_for_categorical, metric_info.group)
                 
         project_result = None
         project_name = ''
         project_commits = set()
+
         for commit in self._repo.commits:
             
-            # Used to cache parsed commit per extension
-            self._parsed_commit = {}
-
             # Create new project result if new project name
             if project_name != commit.project_name:
                 print(f'Analyzing {commit.project_name}')
@@ -408,14 +431,15 @@ class GitEvo:
                 continue
             project_commits.add(selected_date)
 
+            # Create and cache parsed commits for each file extension, eg, .py, .js, .java, etc
+            parsed_commits = ParsedCommits(commit, self._all_file_extensions())
+
             # Iterate on each metric
             commit_result = CommitResult(commit.hash, commit.committer_date.date())
             for metric_info in self.registered_metrics:
                 
-                # Create parsed commit
-                parsed_commit = self._ensure_parsed_commit(commit, metric_info.file_extension)
-                
-                # Run the metric callback
+                # Inject parsed_commit and run the metric callback
+                parsed_commit = parsed_commits.get_parsed_commit_for(metric_info.file_extension)
                 metric_value = metric_info.callback(parsed_commit)
 
                 # Process categorical metrics
@@ -424,13 +448,14 @@ class GitEvo:
                     if not isinstance(metric_value, list):
                         raise BadReturnType(f'categorical metric {metric_info.name} should return list of strings')
 
-                    for name, value in Counter(metric_value).most_common():
-                        assert isinstance(name, str), f'categorical metric {metric_info.name} should return list of strings'
-                        metric_result = MetricResult(name=name, value=value, date=commit_result.date)
+                    for real_name, value in Counter(metric_value).most_common():
+                        assert isinstance(real_name, str), f'categorical metric {metric_info.name} should return list of strings'
+                        metric_result = MetricResult(name=real_name, value=value, date=commit_result.date)
                         commit_result.add_metric_result(metric_result)
                         
-                        result.add_metric_aggregate(name, metric_info.aggregate)
-                        result.add_metric_group(name, metric_info.group)
+                        # Register the real name of the categorical metric
+                        result.add_metric_group(real_name, metric_info.group)
+                        result.add_metric_aggregate(real_name, metric_info.aggregate)
                 
                 # Process numerical metrics
                 else:
@@ -442,34 +467,43 @@ class GitEvo:
                     commit_result.add_metric_result(metric_result)
 
                     result.add_metric_aggregate(metric_info.name, metric_info.aggregate)
-                    result.add_metric_group(metric_info.name, metric_info.group)
 
-            print(f'- Date: {selected_date}, commit: {commit.hash}, processed files: {self._file_stats()}')
+            print(f'- Date: {selected_date}, commit: {commit.hash}, processed files: {parsed_commits.file_stats()}')
             project_result.add_commit_result(commit_result)
         
         return result
+        
+    def _all_file_extensions(self):
+        return set([metric_info.file_extension for metric_info in self.registered_metrics])
     
-    def _file_stats(self):
-        file_stats = [f'{extension} {len(pc.parsed_files)}' for extension, pc in self._parsed_commit.items()]
+class ParsedCommits:
+
+    def __init__(self, commit: Commit, file_extensions: list[str]):
+        self.commit = commit
+        self.file_extensions = file_extensions
+        
+        self._parsed_commits: dict[str, ParsedCommit] = {}
+        self._create_parsed_commits()
+
+    def get_parsed_commit_for(self, file_extension: str) -> ParsedCommit:
+        assert file_extension in self.file_extensions
+        return self._parsed_commits[file_extension]
+
+    def file_stats(self):
+        file_stats = [f'{extension} {len(pc.parsed_files)}' for extension, pc in self._parsed_commits.items()]
         return ' '.join(file_stats)
     
-    def _ensure_parsed_commit(self, commit: Commit, file_extension: str) -> ParsedCommit:
+    def _create_parsed_commits(self):
+        for file_extension in self.file_extensions:
+            self._parsed_commits[file_extension] = self._create_parsed_commit(file_extension)
 
-        if file_extension is None:
-            file_extension = self.global_file_extension
-
-        if file_extension not in self._parsed_commit:
-            self._parsed_commit[file_extension] = self._create_parsed_commit(commit, file_extension)
-        return self._parsed_commit[file_extension]
-
-    def _create_parsed_commit(self, commit: Commit, file_extension: str) -> ParsedCommit:
+    def _create_parsed_commit(self, file_extension: str) -> ParsedCommit:
         parsed_files = []
-        for file in commit.all_files([file_extension]):
+        for file in self.commit.all_files([file_extension]):
             file_nodes = [node for node in file.tree_nodes]
             parsed_file = ParsedFile(file.filename, file.path, file_nodes)
             parsed_files.append(parsed_file)
-
-        return ParsedCommit(commit.hash, commit.committer_date, parsed_files)
+        return ParsedCommit(self.commit.hash, self.commit.committer_date, parsed_files)
     
 class FileExtensionNotFound(Exception):
     pass
@@ -662,7 +696,12 @@ projects = ['git/FastAPI-template', 'git/full-stack-fastapi-template']
 
 evo = GitEvo(projects=projects, file_extension='.py', date_unit='year', since_year=2020)
 
-@evo.metric('Analyzed files', aggregate='sum', file_extension='.py')
+@evo.before(file_extension='.py')
+def before(commit: ParsedCommit):
+    print('before')
+    return commit
+
+@evo.metric('Analyzed files', aggregate='sum', file_extension='.js')
 def files(commit: ParsedCommit):
     return len(commit.parsed_files)
 
@@ -678,9 +717,9 @@ def comprehension(commit: ParsedCommit):
 def control_flow(commit: ParsedCommit):
     return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
 
-# @evo.metric('for vs. while', aggregate='sum', categorical=True)
-# def for_while(commit: ParsedCommit):
-#     return commit.node_types(['for_statement', 'while_statement'])
+@evo.metric('for vs. while', aggregate='sum', categorical=True)
+def for_while(commit: ParsedCommit):
+    return commit.node_types(['for_statement', 'while_statement'])
 
 @evo.metric('continue vs. break', aggregate='sum', categorical=True)
 def continue_break(commit: ParsedCommit):
