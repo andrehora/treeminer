@@ -10,6 +10,8 @@ from treeminer.repo import Repo, Commit
 
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
+from rich import print
 
 
 def as_str(text: bytes) -> str:
@@ -295,7 +297,7 @@ class Result:
         return TableReport(self).generate_table()
     
     def as_rich_table(self):
-        table_data = TableReport(self).generate_table()
+        table_data = TableReport(self).generate_table2()
         RichTableReport(table_data).print()
     
     def _date_steps(self) -> list[date]:
@@ -436,7 +438,7 @@ class GitEvo:
             
             # Create new project result if new project name
             if project_name != commit.project_name:
-                print(f'Analyzing {commit.project_name}')
+                print(Panel.fit(commit.project_name))
                 project_name = commit.project_name
                 project_commits = set()
                 project_result = ProjectResult(commit.project_name)
@@ -455,7 +457,7 @@ class GitEvo:
 
             # Chache parsed commits for each file extension, eg, .py, .js, .java, etc
             parsed_commits = ParsedCommits(commit, self._all_file_extensions())
-            print(f'- Date: {selected_date}, commit: {commit.hash}, processed files: {parsed_commits.file_stats()}')
+            print(f'- Date: {selected_date}, commit: [green]{commit.hash}[/], processed files: {parsed_commits.file_stats()}')
             
             # Iterate on the before commit
             for before_commit_info in self.registered_before_commits:
@@ -564,7 +566,7 @@ class RichTableReport:
         for column in columns:
             style = 'bright_magenta'
             if column == 'date': style="green"
-            table.add_column(column, justify="right", style=style, no_wrap=True)
+            table.add_column(column, justify="left", style=style, no_wrap=True)
 
         for row in self.table_data[1:]:
             table.add_row(*row)
@@ -756,9 +758,25 @@ def fastapi_imports(fastapi: FastAPICommit):
 def apirouter_imports(fastapi: FastAPICommit):
     return len(fastapi.apirouter_imports())
 
+@evo.metric('UploadFile imports', aggregate='sum')
+def upload_file_imports(fastapi: FastAPICommit):
+    return len(fastapi.upload_file_imports())
+
+@evo.metric('BackgroundTasks imports', aggregate='sum')
+def background_tasks_imports(fastapi: FastAPICommit):
+    return len(fastapi.background_tasks_imports())
+
+@evo.metric('WebSocket imports', aggregate='sum')
+def websocket_imports(fastapi: FastAPICommit):
+    return len(fastapi.websocket_imports())
+
 @evo.metric('Security imports', categorical=True, aggregate='sum')
 def security_imports(fastapi: FastAPICommit):
     return fastapi.security_imports()
+
+@evo.metric('Response imports', categorical=True, aggregate='sum')
+def response_imports(fastapi: FastAPICommit):
+    return fastapi.response_imports()
 
 # @evo.metric('Analyzed files', aggregate='sum', file_extension='.js')
 # def files(commit: ParsedCommit):
@@ -833,5 +851,5 @@ def security_imports(fastapi: FastAPICommit):
 #     return commit.count_nodes(['pass_statement'])
 
 result = evo.compute()
-# result.as_rich_table()
+result.as_rich_table()
 table = result.as_html()
