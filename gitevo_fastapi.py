@@ -5,16 +5,11 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-class Endpoint:
+class FastAPIEndpoint:
 
     def __init__(self, decorator, function):
         self.decorator: EndpointDecorator = decorator
         self.function: EndpointFunction = function
-
-    def __str__(self):
-        is_async = " async" if self.function.is_async else ""
-        return_type = f"-> {self.function.return_type}" if self.function.return_type else ""
-        return f'{self.decorator} |{is_async} {self.function} {return_type}'
 
 class EndpointDecorator:
     
@@ -34,16 +29,31 @@ class EndpointDecorator:
 
 class EndpointFunction:
     
-    def __init__(self, name, parameters, return_type, is_async):
+    def __init__(self, name, parameters, return_type, is_async, loc):
         self.name = name
         self.parameters = parameters
         self.return_type = return_type
         self.is_async = is_async
+        self.loc = loc
 
     def sync_async(self):
-        if self.is_async:
-            return 'async'
+        if self.is_async: return 'async'
         return 'sync'
+    
+    def parameter_names(self):
+        return [param[0] for param in self.parameters if param[0] is not None]
+    
+    def parameter_types(self):
+        return [param[1] for param in self.parameters if param[1] is not None]
+    
+    def typed_untyped(self):
+        return ['typed' if param[2] else 'untyped' for param in self.parameters if param[2] is not None]
+    
+    def defaults(self):
+        return [param[3] for param in self.parameters if param[3] is not None]
+    
+    def param_node_types(self):
+        return [param[4] for param in self.parameters if param[4] is not None]
 
     def has_return_type(self):
         return self.return_type != ''
@@ -56,7 +66,7 @@ class FastAPICommit:
     def __init__(self, parsed_commit):
         self.parsed_commit = parsed_commit
   
-    def endpoints(self) -> list[Endpoint]:
+    def endpoints(self) -> list[FastAPIEndpoint]:
         result = []
         for decorated_definition_node in self.parsed_commit.find_nodes_by_type(['decorated_definition']):
             for node in decorated_definition_node.children:
@@ -70,81 +80,9 @@ class FastAPICommit:
                         endpoint_function = self._create_endpoint_function(function_definition_node)
 
                     if endpoint_decorator and endpoint_function:
-                        endpoint = Endpoint(endpoint_decorator, endpoint_function)
+                        endpoint = FastAPIEndpoint(endpoint_decorator, endpoint_function)
                         result.append(endpoint)
         return result
-    
-    def _create_endpoint_decorator(self, decorator_node: Node) -> EndpointDecorator:
-
-        object = as_str(self.parsed_commit.descendant_node_by_field_name(decorator_node, 'object').text)
-        http_method = as_str(self.parsed_commit.descendant_node_by_field_name(decorator_node, 'attribute').text)
-        argumemnts_node = self.parsed_commit.descendant_node_by_field_name(decorator_node, 'arguments')
-
-        if argumemnts_node:
-            args = []
-            for arg_node in self.parsed_commit.named_children(argumemnts_node):
-
-                if arg_node.type == 'keyword_argument':
-                    name = as_str(arg_node.child_by_field_name('name').text)
-                    value = as_str(arg_node.child_by_field_name('value').text)
-                else:
-                    name = ''
-                    value = as_str(arg_node.text)
-                args.append((name, value))
-        
-        return EndpointDecorator(object, http_method, args)
-    
-    def _create_endpoint_function(self, function_definition: Node) -> EndpointFunction:
-
-        is_async = as_str(function_definition.child(0).text) == 'async'
-        name = as_str(function_definition.child_by_field_name('name').text)
-        
-        return_type = ''
-        return_type_node = function_definition.child_by_field_name('return_type')
-        if return_type_node:
-            return_type = as_str(return_type_node.text)
-
-        parameters_node = function_definition.child_by_field_name('parameters')
-
-        if parameters_node:
-            params = []
-            for param_node in self.parsed_commit.named_children(parameters_node):
-                
-                param_name = None
-                param_type = None
-
-                if param_node.type == 'identifier':
-                    param_name = as_str(param_node.text)    
-                
-                if param_node.type == 'typed_parameter':
-                    param_name = as_str(param_node.children[0].text)
-                    param_type = as_str(param_node.child_by_field_name('type').text)
-                
-                if param_node.type == 'typed_default_parameter':
-                    param_type = as_str(param_node.child_by_field_name('type').text)
-                    param_default_value = as_str(param_node.child_by_field_name('value').text)
-
-                params.append((param_name, param_type))
-        
-        return EndpointFunction(name, params, return_type, is_async)
-    
-    def _is_fastapi_decorator(self, node: Node):
-
-        fastapi_objects = ['app', 'router']
-        http_methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace', 'connect']
-
-        if node.type != 'decorator':
-            return False
-
-        decorator_obj = self.parsed_commit.descendant_node_by_field_name(node, 'object')
-        decorator_att = self.parsed_commit.descendant_node_by_field_name(node, 'attribute')
-        
-        if decorator_obj:
-            for fastapi_obj in fastapi_objects:
-                if fastapi_obj in as_str(decorator_obj.text):
-                    if decorator_att and as_str(decorator_att.text) in http_methods:
-                        return True
-        return False
     
     def fastapi_imports(self):
         return self._find_imports(['FastAPI'])
@@ -175,6 +113,100 @@ class FastAPICommit:
         response_classes = ['FileResponse', 'HTMLResponse', 'JSONResponse', 'PlainTextResponse', 'RedirectResponse', 'Response', 'StreamingResponse']
         return self._find_imports(response_classes)
     
+    def _create_endpoint_decorator(self, decorator_node: Node) -> EndpointDecorator:
+
+        object = as_str(self.parsed_commit.descendant_node_by_field_name(decorator_node, 'object').text)
+        http_method = as_str(self.parsed_commit.descendant_node_by_field_name(decorator_node, 'attribute').text)
+        argumemnts_node = self.parsed_commit.descendant_node_by_field_name(decorator_node, 'arguments')
+
+        if argumemnts_node:
+            args = []
+            for arg_node in self.parsed_commit.named_children(argumemnts_node):
+
+                if arg_node.type == 'keyword_argument':
+                    name = as_str(arg_node.child_by_field_name('name').text)
+                    value = as_str(arg_node.child_by_field_name('value').text)
+                else:
+                    name = ''
+                    value = as_str(arg_node.text)
+                args.append((name, value))
+        
+        return EndpointDecorator(object, http_method, args)
+    
+    def _create_endpoint_function(self, function_definition: Node) -> EndpointFunction:
+
+        is_async = as_str(function_definition.child(0).text) == 'async'
+        name = as_str(function_definition.child_by_field_name('name').text)
+        loc = self._loc(function_definition)
+        
+        return_type = ''
+        return_type_node = function_definition.child_by_field_name('return_type')
+        if return_type_node:
+            return_type = as_str(return_type_node.text)
+
+        parameters_node = function_definition.child_by_field_name('parameters')
+
+        if parameters_node:
+            params = []
+            for param_node in self.parsed_commit.named_children(parameters_node):
+                
+                param_name = None
+                param_type = None
+                is_typed = None
+                has_default = None
+                node_type = None
+
+                if param_node.type == 'identifier':
+                    param_name = as_str(param_node.text)
+                    is_typed = False
+                    has_default = False
+                    node_type = 'only_name'
+
+                if param_node.type == 'default_parameter':
+                    param_name = as_str(param_node.child_by_field_name('name').text)
+                    is_typed = False
+                    has_default = True
+                    node_type = 'default_parameter'
+                
+                if param_node.type == 'typed_parameter':
+                    param_name = as_str(param_node.children[0].text)
+                    param_type = as_str(param_node.child_by_field_name('type').text)
+                    is_typed = True
+                    has_default = False
+                    node_type = 'typed_parameter'
+                
+                if param_node.type == 'typed_default_parameter':
+                    param_name = as_str(param_node.child_by_field_name('name').text)
+                    param_type = as_str(param_node.child_by_field_name('type').text)
+                    is_typed = True
+                    has_default = True
+                    node_type = 'typed_default_parameter'
+
+                params.append((param_name, param_type, is_typed, has_default, node_type))
+        
+        return EndpointFunction(name, params, return_type, is_async, loc)
+    
+    def _loc(self, node: Node) -> int:
+        return len(as_str(node.text).split('\n'))
+    
+    def _is_fastapi_decorator(self, node: Node):
+
+        fastapi_objects = ['app', 'router']
+        http_methods = ['get', 'post', 'put', 'delete', 'patch', 'options', 'head', 'trace', 'connect']
+
+        if node.type != 'decorator':
+            return False
+
+        decorator_obj = self.parsed_commit.descendant_node_by_field_name(node, 'object')
+        decorator_att = self.parsed_commit.descendant_node_by_field_name(node, 'attribute')
+        
+        if decorator_obj:
+            for fastapi_obj in fastapi_objects:
+                if fastapi_obj in as_str(decorator_obj.text):
+                    if decorator_att and as_str(decorator_att.text) in http_methods:
+                        return True
+        return False
+    
     def _find_imports(self, import_classes):
         imports = []
         for imp in self._imports():
@@ -195,41 +227,99 @@ evo = GitEvo(project_path='./projects_fastapi', file_extension='.py', date_unit=
 def before(commit: ParsedCommit):
     return FastAPICommit(commit)
 
-@evo.metric('Endpoints', aggregate='sum')
+
+@evo.metric('Analyzed endpoints', aggregate='sum')
 def endpoints(fastapi: FastAPICommit):
     return len(fastapi.endpoints())
 
-@evo.metric('Endpoints by HTTP method', categorical=True, aggregate='sum')
-def http_methods(fastapi: FastAPICommit):
+@evo.metric('Mean endpoint size (LOC)', aggregate='mean')
+def mean_parameters(fastapi: FastAPICommit):
+    
+    endpoints = fastapi.endpoints()
+    number_of_endpoints = len(endpoints)
+    if number_of_endpoints == 0:
+        return 0
+    
+    sum_loc = sum([endpoint.function.loc for endpoint in endpoints])
+    return round(sum_loc/number_of_endpoints, 2)
+
+
+@evo.metric('Endpoints: HTTP methods', categorical=True, aggregate='sum')
+def http_method(fastapi: FastAPICommit):
     return [endpoint.decorator.http_method for endpoint in fastapi.endpoints()]
 
-@evo.metric('Endpoints sync vs. async', categorical=True, aggregate='sum')
+
+@evo.metric('Endpoints: sync vs. async', categorical=True, aggregate='sum')
 def sync_async(fastapi: FastAPICommit):
     return [endpoint.function.sync_async() for endpoint in fastapi.endpoints()]
+
+
+@evo.metric('Endpoints: return type in function?', categorical=True, aggregate='sum')
+def has_return_type(fastapi: FastAPICommit):
+    return [str(endpoint.function.has_return_type()) for endpoint in fastapi.endpoints()]
+
+
+@evo.metric('Endpoints: typed vs. untyped parameters', categorical=True, aggregate='sum')
+def typed_untyped(fastapi: FastAPICommit):
+    return [typed_untyped for endpoint in fastapi.endpoints() for typed_untyped in endpoint.function.typed_untyped()]
+
+
+@evo.metric('Endpoints: default parameters?', categorical=True, aggregate='sum')
+def defaults(fastapi: FastAPICommit):
+    return [str(has_default) for endpoint in fastapi.endpoints() for has_default in endpoint.function.defaults()]
+
+
+@evo.metric('Endpoints: common parameter names', categorical=True, aggregate='sum')
+def parameter_names(fastapi: FastAPICommit):
+    return [param_name for endpoint in fastapi.endpoints() for param_name in endpoint.function.parameter_names()]
+
+
+@evo.metric('Endpoints: common parameter types', categorical=True, aggregate='sum')
+def parameter_types(fastapi: FastAPICommit):
+    return [param_type for endpoint in fastapi.endpoints() for param_type in endpoint.function.parameter_types()]
+
+
+@evo.metric('Endpoints: mean of parameters', aggregate='mean')
+def mean_parameters(fastapi: FastAPICommit):
+    
+    endpoints = fastapi.endpoints()
+    number_of_endpoints = len(endpoints)
+    if number_of_endpoints == 0:
+        return 0
+    
+    sum_of_parameters = sum([len(endpoint.function.parameters) for endpoint in endpoints])
+    return round(sum_of_parameters/number_of_endpoints, 2)
+
 
 @evo.metric('FastAPI imports', aggregate='sum')
 def fastapi_imports(fastapi: FastAPICommit):
     return len(fastapi.fastapi_imports())
 
+
 @evo.metric('APIRouter imports', aggregate='sum')
 def apirouter_imports(fastapi: FastAPICommit):
     return len(fastapi.apirouter_imports())
+
 
 @evo.metric('UploadFile imports', aggregate='sum')
 def upload_file_imports(fastapi: FastAPICommit):
     return len(fastapi.upload_file_imports())
 
+
 @evo.metric('BackgroundTasks imports', aggregate='sum')
 def background_tasks_imports(fastapi: FastAPICommit):
     return len(fastapi.background_tasks_imports())
+
 
 @evo.metric('WebSocket imports', aggregate='sum')
 def websocket_imports(fastapi: FastAPICommit):
     return len(fastapi.websocket_imports())
 
+
 @evo.metric('Security imports', categorical=True, aggregate='sum')
 def security_imports(fastapi: FastAPICommit):
     return fastapi.security_imports()
+
 
 @evo.metric('Response imports', categorical=True, aggregate='sum')
 def response_imports(fastapi: FastAPICommit):

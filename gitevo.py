@@ -450,7 +450,7 @@ class GitEvo:
         print(f'Running GitEvo...')
         print(f'Git projects: [blue]{len(self.projects)}[/]')
         result = self._compute_metrics()
-        result.as_rich_table()
+        # result.as_rich_table()
         html_link = result.as_html()
         print(Panel.fit(f'HTML report available at [yellow][link=file://{html_link}]{html_link}[/][/]!'))
         return result
@@ -481,7 +481,7 @@ class GitEvo:
             
             # Create new project result if new project name
             if project_name != commit.project_name:
-                print(f'[yellow]{commit.project_name}...[/]')
+                print(f'[yellow]{commit.project_name}[/]')
                 project_name = commit.project_name
                 project_commits = set()
                 project_result = ProjectResult(commit.project_name)
@@ -666,7 +666,7 @@ class Chart:
         self.title = title
         self.metric_names = metric_names
         self.metric_dates = metric_dates
-        self.evolutions = sorted(evolutions, key=lambda evo: evo.values[-1], reverse=True)
+        self.evolutions = sorted(evolutions, key=lambda evo: evo.values[-1], reverse=True)[0:7]
         
     def evo_dict(self) -> dict:
         return {
