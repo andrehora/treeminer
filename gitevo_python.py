@@ -1,6 +1,6 @@
 from gitevo import GitEvo, ParsedCommit
 
-evo = GitEvo(project_path='./projects_python', file_extension='.py', date_unit='year', since_year=2021)
+evo = GitEvo(title='Python', project_path='./projects_python', file_extension='.py', date_unit='year', since_year=2021)
 
 @evo.metric('Analyzed files', project_aggregate='sum', file_extension='.js')
 def files(commit: ParsedCommit):

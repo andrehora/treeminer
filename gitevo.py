@@ -79,7 +79,7 @@ class DateUtil:
 class MetricInfo:
     
     def __init__(self, name: str, callback, file_extension: str, categorical: bool,
-                 project_aggregate: str, group: str, version_chart: str):
+                 project_aggregate: str, group: str, version_chart: str, top_n: int):
         
         self._name = name
         self.callback = callback
@@ -88,6 +88,7 @@ class MetricInfo:
         self.project_aggregate = project_aggregate
         self._group = group
         self.version_chart = version_chart
+        self.top_n = top_n
 
     @property
     def name(self) -> str:
@@ -256,10 +257,10 @@ class ProjectResult:
 
 class Result:
 
-    def __init__(self, date_unit: str, version_charts: dict[str, str]):
-        
+    def __init__(self, title: str, date_unit: str, registered_metrics: list[MetricInfo]):
+        self.title = title
+        self.registered_metrics = registered_metrics
         DateUtil.date_unit = date_unit
-        self.version_charts = version_charts
 
         self.project_results: list[ProjectResult] = []
         self.metrics_data = MetricsData()
@@ -276,6 +277,14 @@ class Result:
     def metric_groups(self):
         return self.metrics_data._groups_and_names
     
+    @property
+    def metric_version_charts(self) -> dict[str, str]:
+        return {metric_info.group: metric_info.version_chart for metric_info in self.registered_metrics}
+    
+    @property
+    def metric_tops_n(self) -> dict[str, str]:
+        return {metric_info.group: metric_info.top_n for metric_info in self.registered_metrics}
+    
     def add_metric_aggregate(self, name: str, aggregate: str):
         self.metrics_data.add_metric_aggregate(name, aggregate)
 
@@ -285,7 +294,7 @@ class Result:
     def add_project_result(self, project_result: ProjectResult):
         self.project_results.append(project_result)
     
-    def evolutions(self) -> list[MetricEvolution]:
+    def metric_evolutions(self) -> list[MetricEvolution]:
         metric_evolutions = []
         for metric_name, metric_agg in self.metrics_data.names_and_aggregates:
             metric_evo = self._metric_evolution(metric_name, metric_agg)
@@ -365,19 +374,26 @@ class MetricsData:
                 
 class GitEvo:
 
-    def __init__(self, project_path: str | list[str],
-                 file_extension: str | None = None, 
-                 date_unit: str = 'year', 
-                 since_year: int | None = None):
+    def __init__(self,
+                *,
+                project_path: str | list[str],
+                file_extension: str | None = None, 
+                date_unit: str = 'year', 
+                since_year: int | None = None,
+                title: str = 'GitEvo report'):
                         
         self.projects = self._check_valid_git_projects(project_path)
         
         if date_unit not in ['year', 'month']:
-            raise BadDateUnit('date_unit must be year or month')
+            raise BadDateUnit(f'date_unit must be year or month, not {date_unit}')
+        
+        if since_year > date.today().year:
+            raise BadSinceYear(f'since_year must be at most {date.today().year}')
 
         self.global_file_extension = file_extension
         self.date_unit = date_unit
         self.since_year = since_year
+        self.title = title.strip()
 
         self.registered_metrics: list[MetricInfo] = []
         self.registered_before_commits: list[BeforeCommitInfo] = []
@@ -420,7 +436,8 @@ class GitEvo:
                categorical: bool = False, 
                project_aggregate: str = 'sum',
                group: str | None = None,
-               version_chart: str = 'doughnut'):
+               version_chart: str = 'bar',
+               top_n: int | None = None):
         
         def decorator(func):
             self.registered_metrics.append(
@@ -430,7 +447,8 @@ class GitEvo:
                            categorical=categorical,
                            project_aggregate=project_aggregate,
                            group=group,
-                           version_chart=version_chart))
+                           version_chart=version_chart,
+                           top_n=top_n))
             return func
         
         return decorator
@@ -455,7 +473,7 @@ class GitEvo:
     def _compute_metrics(self) -> Result:
 
         # Sanity checks on registered_metrics
-        result = Result(self.date_unit, self._version_charts())
+        result = Result(self.title, self.date_unit, self.registered_metrics)
         for metric_info in self.registered_metrics:
 
             if self.global_file_extension is None and metric_info.file_extension is None:
@@ -464,8 +482,8 @@ class GitEvo:
             if metric_info.project_aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
                 raise BadAggregate(f'project_aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min, not {metric_info.project_aggregate}')
             
-            if metric_info.version_chart not in ['doughnut', 'pie', 'bar', 'hbar']:
-                raise BadVersionChart(f'version chart in {metric_info.name} should be doughnut, pie, bar, or hbar, not {metric_info.version_chart}')
+            if metric_info.version_chart not in ['donut', 'pie', 'bar', 'hbar']:
+                raise BadVersionChart(f'version chart in {metric_info.name} should be donut, pie, bar, or hbar, not {metric_info.version_chart}')
             
             if metric_info.file_extension is None:
                 metric_info.file_extension = self.global_file_extension
@@ -547,9 +565,6 @@ class GitEvo:
             project_result.add_commit_result(commit_result)
         
         return result
-    
-    def _version_charts(self) -> dict[str, str]:
-        return {metric_info.group: metric_info.version_chart for metric_info in self.registered_metrics}
             
     def _all_file_extensions(self) -> set[str]:
         return set([metric_info.file_extension for metric_info in self.registered_metrics])
@@ -614,6 +629,9 @@ class BadGitPath(Exception):
 class BadVersionChart(Exception):
     pass
 
+class BadSinceYear(Exception):
+    pass
+
 class TableReport:
 
     DATE_COLUMN_NAME = 'date'
@@ -621,7 +639,7 @@ class TableReport:
     def __init__(self, result: Result):
         self.metric_names = result.metric_names
         self.metric_dates = result.metric_dates
-        self.evolutions = result.evolutions()
+        self.evolutions = result.metric_evolutions()
     
     def generate_table(self) -> list[list[str]]:
         header = self._header()
@@ -649,69 +667,78 @@ class Chart:
     border_colors = ["#36A2EB80", "#FF638480", "#FF9F4080", "#FFCE5680", "#4BC0C080", "#9966FF80", "#C9CBCF80"]
     background_colors = ["#36A2EB", "#FF6384", "#FF9F40", "#FFCE56", "#4BC0C0", "#9966FF", "#C9CBCF"]
 
-    def __init__(self, title: str, metric_names: list[str], metric_dates: list[str], evolutions: list[MetricEvolution]):
-        assert len(metric_names) == len(evolutions)
+    def __init__(self, title: str, metric_dates: list[str], group_evolution: list[MetricEvolution], top_n: int):
+        
         self.title = title
-        self.metric_names = metric_names
         self.metric_dates = metric_dates
-        self.evolutions = sorted(evolutions, key=lambda evo: evo.values[-1], reverse=True)[0:7]
+
+        self.group_evolution_original = sorted(group_evolution, key=lambda metric: metric.values[-1], reverse=True)
+        self.group_evolution = self.group_evolution_original
+        if top_n is not None:
+            self.group_evolution = self.group_evolution_original[0:top_n]
+
+    @property
+    def is_single_metric(self):
+        return len(self.group_evolution) == 1
+    
+    @property
+    def is_multi_metrics(self):
+        return not self.is_single_metric
         
     def evo_dict(self) -> dict:
         return {
             'title': self.title,
             'type': 'line',
             'indexAxis': 'x',
-            'display_legend': self.has_multi_metrics,
+            'display_legend': self.is_multi_metrics,
             'labels': self.metric_dates,
             'datasets': self._evo_datasets()
         }
     
     def version_dict(self, chart_type: str) -> dict:
+
         lastest_date = self.metric_dates[-1]
         title = f'{self.title} in {lastest_date} (%)'
-
         indexAxis = 'x'
+
+        # doughnut is the actual name is Chart.js
+        if chart_type == 'donut':
+            chart_type = 'doughnut'
+        
+        # hbar is simply a bar chart with indexAxis y
         if chart_type == 'hbar':
-            # hbar is simply a bar chart with indexAxis y
             chart_type = 'bar'
             indexAxis = 'y'
+
         # no need to display legend in bar and hbar charts
         display_legend = False if chart_type in ['bar', 'hbar'] else True
+        version_labels = [metric.name for metric in self.group_evolution]
         
         return {
             'title': title,
             'indexAxis': indexAxis,
             'type': chart_type,
             'display_legend': display_legend,
-            'labels': self._version_labels(),
+            'labels': version_labels,
             'datasets': self._version_dataset()
         }
     
-    @property
-    def has_single_metric(self):
-        return len(self.evolutions) == 1
-    
-    @property
-    def has_multi_metrics(self):
-        return not self.has_single_metric
-    
-    def _version_labels(self) -> list[str]:
-        return [evo.name for evo in self.evolutions]
+    def _evo_datasets(self) -> list:
+
+        if self.is_single_metric:
+            return [{'data': self.group_evolution[0].values}]
+        
+        return [{'label': metric.name, 
+                 'data': metric.values} for metric in self.group_evolution]
     
     def _version_dataset(self) -> list[Number]:
         # Get the most recent metric values (this year) 
-        total = sum([evo.values[-1] for evo in self.evolutions])
-        ratios = [round(evo.values[-1]/total*100, 0) for evo in self.evolutions]
+        total = sum([metric.values[-1] for metric in self.group_evolution_original])
+        ratios = [round(metric.values[-1]/total*100, 0) for metric in self.group_evolution]
+        
         return [{'data': ratios,
                  'backgroundColor': self.background_colors}]
-    
-    def _evo_datasets(self) -> list:
-        if self.has_single_metric:
-            return [{'data': self.evolutions[0].values}]
-        
-        return [{'label': evo.name, 
-                 'data': evo.values} for evo in self.evolutions]
-        
+
 
 class HtmlReport:
 
@@ -723,18 +750,19 @@ class HtmlReport:
     CREATED_DATE_PLACEHOLDER = '{{CREATED_DATE}}'
 
     def __init__(self, result: Result):
-        self.metric_names = result.metric_names
+        self.title = result.title
         self.metric_dates = result.metric_dates
         self.metric_groups = result.metric_groups
-        self.version_charts = result.version_charts
-        self.evolutions = result.evolutions()
+        self.metric_version_charts = result.metric_version_charts
+        self.metric_tops_n = result.metric_tops_n
+        self.metric_evolutions = result.metric_evolutions()
 
     def generate_html(self) -> str:
         json_data = self._json_data()
         template = self._read_template()
         content = self._replace_json_data(template, json_data)
         # content = self._replace_title(content, 'Python syntax and features')
-        content = self._replace_title(content, 'FastAPI')
+        content = self._replace_title(content, self.title)
         content = self._replace_created_date(content)
         self._write_html(content)
         return os.path.join(os.getcwd(), self.HTML_FILENAME)
@@ -745,22 +773,26 @@ class HtmlReport:
     def _build_charts(self) -> list[dict]:
         charts = []
         for group_name, metric_names in self.metric_groups.items():
-            evolutions = self._find_metric_evolutions(metric_names)
+            assert group_name in self.metric_tops_n
+            group_evolution = self._find_metric_evolutions(metric_names)
+            top_n = self.metric_tops_n[group_name]
             
             # Build evolution chart
-            evo_chart = Chart(group_name, metric_names, self.metric_dates, evolutions)
-            charts.append(evo_chart.evo_dict())
+            evo_chart = Chart(group_name, self.metric_dates, group_evolution, top_n)
+            
+            if len(self.metric_dates) >= 2:
+                charts.append(evo_chart.evo_dict())
 
             # Build version chart if there are multiple metrics in evo chart
-            if evo_chart.has_multi_metrics:
-                assert group_name in self.version_charts
-                version_chart = self.version_charts[group_name]
+            if evo_chart.is_multi_metrics:
+                assert group_name in self.metric_version_charts
+                version_chart = self.metric_version_charts[group_name]
                 charts.append(evo_chart.version_dict(version_chart))
 
         return charts
             
     def _find_metric_evolutions(self, metric_names):
-        return [evolution for evolution in self.evolutions if evolution.name in metric_names]
+        return [evolution for evolution in self.metric_evolutions if evolution.name in metric_names]
     
     def _read_template(self):
         with open(self.TEMPLATE_HTML_FILENAME, 'r') as template_file:
