@@ -50,13 +50,14 @@ class EndpointFunction:
         return ['typed' if param[2] else 'untyped' for param in self.parameters if param[2] is not None]
     
     def defaults(self):
-        return [param[3] for param in self.parameters if param[3] is not None]
+        return ['with default' if param[3] else 'without default' for param in self.parameters if param[3] is not None]
     
     def param_node_types(self):
         return [param[4] for param in self.parameters if param[4] is not None]
 
     def has_return_type(self):
-        return self.return_type != ''
+        if self.return_type: return 'with return type'
+        return 'without return type'
 
     def __str__(self):
         return f'{self.name}'
@@ -228,11 +229,12 @@ def before(commit: ParsedCommit):
     return FastAPICommit(commit)
 
 
-@evo.metric('Analyzed endpoints', aggregate='sum')
+@evo.metric('Analyzed endpoints', project_aggregate='sum')
 def endpoints(fastapi: FastAPICommit):
     return len(fastapi.endpoints())
 
-@evo.metric('Mean endpoint size (LOC)', aggregate='mean')
+
+@evo.metric('Endpoints: lines of code (mean)', project_aggregate='mean')
 def mean_parameters(fastapi: FastAPICommit):
     
     endpoints = fastapi.endpoints()
@@ -244,42 +246,42 @@ def mean_parameters(fastapi: FastAPICommit):
     return round(sum_loc/number_of_endpoints, 2)
 
 
-@evo.metric('Endpoints: HTTP methods', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: HTTP methods', categorical=True, project_aggregate='sum')
 def http_method(fastapi: FastAPICommit):
     return [endpoint.decorator.http_method for endpoint in fastapi.endpoints()]
 
 
-@evo.metric('Endpoints: sync vs. async', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: sync vs. async', categorical=True, project_aggregate='sum')
 def sync_async(fastapi: FastAPICommit):
     return [endpoint.function.sync_async() for endpoint in fastapi.endpoints()]
 
 
-@evo.metric('Endpoints: return type in function?', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: return type in function?', categorical=True, project_aggregate='sum')
 def has_return_type(fastapi: FastAPICommit):
     return [str(endpoint.function.has_return_type()) for endpoint in fastapi.endpoints()]
 
 
-@evo.metric('Endpoints: typed vs. untyped parameters', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: typed vs. untyped parameters', categorical=True, project_aggregate='sum')
 def typed_untyped(fastapi: FastAPICommit):
     return [typed_untyped for endpoint in fastapi.endpoints() for typed_untyped in endpoint.function.typed_untyped()]
 
 
-@evo.metric('Endpoints: default parameters?', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: default parameters?', categorical=True, project_aggregate='sum')
 def defaults(fastapi: FastAPICommit):
     return [str(has_default) for endpoint in fastapi.endpoints() for has_default in endpoint.function.defaults()]
 
 
-@evo.metric('Endpoints: common parameter names', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: common parameter names', categorical=True, project_aggregate='sum')
 def parameter_names(fastapi: FastAPICommit):
     return [param_name for endpoint in fastapi.endpoints() for param_name in endpoint.function.parameter_names()]
 
 
-@evo.metric('Endpoints: common parameter types', categorical=True, aggregate='sum')
+@evo.metric('Endpoints: common parameter types', categorical=True, project_aggregate='sum')
 def parameter_types(fastapi: FastAPICommit):
     return [param_type for endpoint in fastapi.endpoints() for param_type in endpoint.function.parameter_types()]
 
 
-@evo.metric('Endpoints: mean of parameters', aggregate='mean')
+@evo.metric('Endpoints: number of parameters (mean)', project_aggregate='mean')
 def mean_parameters(fastapi: FastAPICommit):
     
     endpoints = fastapi.endpoints()
@@ -291,37 +293,37 @@ def mean_parameters(fastapi: FastAPICommit):
     return round(sum_of_parameters/number_of_endpoints, 2)
 
 
-@evo.metric('FastAPI imports', aggregate='sum')
+@evo.metric('FastAPI imports', project_aggregate='sum')
 def fastapi_imports(fastapi: FastAPICommit):
     return len(fastapi.fastapi_imports())
 
 
-@evo.metric('APIRouter imports', aggregate='sum')
+@evo.metric('APIRouter imports', project_aggregate='sum')
 def apirouter_imports(fastapi: FastAPICommit):
     return len(fastapi.apirouter_imports())
 
 
-@evo.metric('UploadFile imports', aggregate='sum')
+@evo.metric('UploadFile imports', project_aggregate='sum')
 def upload_file_imports(fastapi: FastAPICommit):
     return len(fastapi.upload_file_imports())
 
 
-@evo.metric('BackgroundTasks imports', aggregate='sum')
+@evo.metric('BackgroundTasks imports', project_aggregate='sum')
 def background_tasks_imports(fastapi: FastAPICommit):
     return len(fastapi.background_tasks_imports())
 
 
-@evo.metric('WebSocket imports', aggregate='sum')
+@evo.metric('WebSocket imports', project_aggregate='sum')
 def websocket_imports(fastapi: FastAPICommit):
     return len(fastapi.websocket_imports())
 
 
-@evo.metric('Security imports', categorical=True, aggregate='sum')
+@evo.metric('Security imports', categorical=True, project_aggregate='sum')
 def security_imports(fastapi: FastAPICommit):
     return fastapi.security_imports()
 
 
-@evo.metric('Response imports', categorical=True, aggregate='sum')
+@evo.metric('Response imports', categorical=True, project_aggregate='sum', version_chart='hbar')
 def response_imports(fastapi: FastAPICommit):
     return fastapi.response_imports()
 

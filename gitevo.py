@@ -11,11 +11,6 @@ from tree_sitter import Node
 from git.repo.fun import is_git_dir
 from treeminer.repo import Repo, Commit
 
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich import print
-
 
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
@@ -83,15 +78,16 @@ class DateUtil:
 
 class MetricInfo:
     
-    def __init__(self, name: str, callback, file_extension: str, 
-                 categorical: bool, aggregate: str, group: str):
+    def __init__(self, name: str, callback, file_extension: str, categorical: bool,
+                 project_aggregate: str, group: str, version_chart: str):
         
         self._name = name
         self.callback = callback
         self.file_extension = file_extension
         self.categorical = categorical
-        self.aggregate = aggregate
+        self.project_aggregate = project_aggregate
         self._group = group
+        self.version_chart = version_chart
 
     @property
     def name(self) -> str:
@@ -260,14 +256,17 @@ class ProjectResult:
 
 class Result:
 
-    def __init__(self, date_unit: str):
+    def __init__(self, date_unit: str, version_charts: dict[str, str]):
+        
         DateUtil.date_unit = date_unit
+        self.version_charts = version_charts
+
         self.project_results: list[ProjectResult] = []
-        self.metrics_meta = MetricsMeta()
+        self.metrics_data = MetricsData()
 
     @property
     def metric_names(self) -> list[str]:
-        return self.metrics_meta.names
+        return self.metrics_data.names
     
     @property
     def metric_dates(self) -> list[str]:
@@ -275,20 +274,20 @@ class Result:
     
     @property
     def metric_groups(self):
-        return self.metrics_meta._groups_and_names
+        return self.metrics_data._groups_and_names
     
     def add_metric_aggregate(self, name: str, aggregate: str):
-        self.metrics_meta.add_metric_aggregate(name, aggregate)
+        self.metrics_data.add_metric_aggregate(name, aggregate)
 
     def add_metric_group(self, name: str | None, group: str):
-        self.metrics_meta.add_metric_group(name, group)
+        self.metrics_data.add_metric_group(name, group)
 
     def add_project_result(self, project_result: ProjectResult):
         self.project_results.append(project_result)
     
     def evolutions(self) -> list[MetricEvolution]:
         metric_evolutions = []
-        for metric_name, metric_agg in self.metrics_meta.names_and_aggregates:
+        for metric_name, metric_agg in self.metrics_data.names_and_aggregates:
             metric_evo = self._metric_evolution(metric_name, metric_agg)
             metric_evolutions.append(metric_evo)
         return metric_evolutions
@@ -298,10 +297,6 @@ class Result:
 
     def as_table(self):
         return TableReport(self).generate_table()
-    
-    def as_rich_table(self):
-        table_data = TableReport(self).generate_table2()
-        RichTableReport(table_data).print()
     
     def _date_steps(self) -> list[date]:
         dates = set()
@@ -340,7 +335,7 @@ class Result:
 
         return MetricEvolution(metric_name, self.metric_dates, values)
 
-class MetricsMeta:
+class MetricsData:
 
     def __init__(self):
         self._names_and_aggregates: dict[str, str] = {}
@@ -374,36 +369,8 @@ class GitEvo:
                  file_extension: str | None = None, 
                  date_unit: str = 'year', 
                  since_year: int | None = None):
-        
-        if not project_path or project_path is None:
-            raise BadGitPath(f'project_path is not a git project')
-        
-        self.projects = None
-        
-        # project_path is str
-        if isinstance(project_path, str):
-            # First, check if project_path is a git project
-            if self._is_git_project(project_path):
-                self.projects = project_path
-            # Second, check if project_path is a dir with git projects
-            else:
-                paths = self._projects_dir(project_path)
-                if not paths:
-                    raise BadGitPath(f'{project_path} is not a dir with git projects')
-                for path in paths:
-                    if not self._is_git_project(path):
-                        raise BadGitPath(f'{path} is not a git project')
-                self.projects = paths
-        
-        # project_path is list
-        if isinstance(project_path, list):
-            for path in project_path:
-                if not self._is_git_project(path):
-                    raise BadGitPath(f'{path} is not a git project')
-            self.projects = paths
-
-        if self.projects is None:
-            raise BadGitPath(f'Invalid project_path')
+                        
+        self.projects = self._check_valid_git_projects(project_path)
         
         if date_unit not in ['year', 'month']:
             raise BadDateUnit('date_unit must be year or month')
@@ -418,12 +385,42 @@ class GitEvo:
         self._analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
 
+    def _check_valid_git_projects(self, project_path: str | list[str]) -> str | list[str]:
+
+        if not project_path or project_path is None:
+            raise BadGitPath(f'project_path is not a git project')
+
+        # project_path is str
+        if isinstance(project_path, str):
+            # First, check if project_path is a git project
+            if self._is_git_project(project_path):
+                return project_path
+            # Second, check if project_path is a dir with git projects
+            else:
+                paths = self._projects_dir(project_path)
+                if not paths:
+                    raise BadGitPath(f'{project_path} is not a dir with git projects')
+                for path in paths:
+                    if not self._is_git_project(path):
+                        raise BadGitPath(f'{path} is not a git project')
+                return paths
+        
+        # project_path is list
+        if isinstance(project_path, list):
+            for path in project_path:
+                if not self._is_git_project(path):
+                    raise BadGitPath(f'{path} is not a git project')
+            return project_path
+        
+        raise BadGitPath(f'Invalid project_path')
+
     def metric(self, name: str = None,
                *,
                file_extension: str | None = None, 
                categorical: bool = False, 
-               aggregate: str = 'sum',
-               group: str | None = None):
+               project_aggregate: str = 'sum',
+               group: str | None = None,
+               version_chart: str = 'doughnut'):
         
         def decorator(func):
             self.registered_metrics.append(
@@ -431,8 +428,9 @@ class GitEvo:
                            callback=func,
                            file_extension=file_extension,
                            categorical=categorical,
-                           aggregate=aggregate,
-                           group=group))
+                           project_aggregate=project_aggregate,
+                           group=group,
+                           version_chart=version_chart))
             return func
         
         return decorator
@@ -448,24 +446,26 @@ class GitEvo:
     
     def run(self) -> Result:
         print(f'Running GitEvo...')
-        print(f'Git projects: [blue]{len(self.projects)}[/]')
+        print(f'Git projects: {len(self.projects)}')
         result = self._compute_metrics()
-        # result.as_rich_table()
         html_link = result.as_html()
-        print(Panel.fit(f'HTML report available at [yellow][link=file://{html_link}]{html_link}[/][/]!'))
+        print(f'HTML report generated at {html_link}')
         return result
     
     def _compute_metrics(self) -> Result:
-        
+
         # Sanity checks on registered_metrics
-        result = Result(self.date_unit)
+        result = Result(self.date_unit, self._version_charts())
         for metric_info in self.registered_metrics:
 
             if self.global_file_extension is None and metric_info.file_extension is None:
                 raise FileExtensionNotFound(f'file_extension should be defined globally or in metric {metric_info.name}')
             
-            if metric_info.aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
-                raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min')
+            if metric_info.project_aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
+                raise BadAggregate(f'project_aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min, not {metric_info.project_aggregate}')
+            
+            if metric_info.version_chart not in ['doughnut', 'pie', 'bar', 'hbar']:
+                raise BadVersionChart(f'version chart in {metric_info.name} should be doughnut, pie, bar, or hbar, not {metric_info.version_chart}')
             
             if metric_info.file_extension is None:
                 metric_info.file_extension = self.global_file_extension
@@ -481,7 +481,7 @@ class GitEvo:
             
             # Create new project result if new project name
             if project_name != commit.project_name:
-                print(f'[yellow]{commit.project_name}[/]')
+                print(f'{commit.project_name}')
                 project_name = commit.project_name
                 project_commits = set()
                 project_result = ProjectResult(commit.project_name)
@@ -500,7 +500,7 @@ class GitEvo:
 
             # Chache parsed commits for each file extension, eg, .py, .js, .java, etc
             parsed_commits = ParsedCommits(commit, self._all_file_extensions())
-            print(f'- Date: [blue]{selected_date}[/], commit: [blue]{commit.hash[0:10]}[/], files: [blue]{parsed_commits.file_stats()}[/]')
+            print(f'- Date: {selected_date}, commit: {commit.hash[0:10]}, files: {parsed_commits.file_stats()}')
             
             # Iterate on the before commit
             for before_commit_info in self.registered_before_commits:
@@ -531,24 +531,27 @@ class GitEvo:
                         
                         # Register the real name of the categorical metric
                         result.add_metric_group(real_name, metric_info.group)
-                        result.add_metric_aggregate(real_name, metric_info.aggregate)
+                        result.add_metric_aggregate(real_name, metric_info.project_aggregate)
                 
                 # Process numerical metrics
                 else:
-                    
+
                     if not isinstance(metric_value, (int, float)):
                         raise BadReturnType(f'numerical metric {metric_info.name} should return int or float')
 
                     metric_result = MetricResult(name=metric_info.name, value=metric_value, date=commit_result.date)
                     commit_result.add_metric_result(metric_result)
 
-                    result.add_metric_aggregate(metric_info.name, metric_info.aggregate)
+                    result.add_metric_aggregate(metric_info.name, metric_info.project_aggregate)
 
             project_result.add_commit_result(commit_result)
         
         return result
-        
-    def _all_file_extensions(self) -> set:
+    
+    def _version_charts(self) -> dict[str, str]:
+        return {metric_info.group: metric_info.version_chart for metric_info in self.registered_metrics}
+            
+    def _all_file_extensions(self) -> set[str]:
         return set([metric_info.file_extension for metric_info in self.registered_metrics])
     
     def _projects_dir(self, folder_path: str):
@@ -608,24 +611,8 @@ class BadLOCMeasure(Exception):
 class BadGitPath(Exception):
     pass
 
-class RichTableReport:
-
-    def __init__(self, table_data: list[list[str]]):
-        self.table_data = table_data
-
-    def print(self):
-        table = Table(title='GitEvo summary')
-        columns = self.table_data[0]
-        for column in columns:
-            style = 'white'
-            if column == 'date': style="blue"
-            table.add_column(column, justify="left", style=style, no_wrap=True)
-
-        for row in self.table_data[1:]:
-            table.add_row(*row)
-
-        console = Console()
-        console.print(table)
+class BadVersionChart(Exception):
+    pass
 
 class TableReport:
 
@@ -659,7 +646,8 @@ class TableReport:
     
 class Chart:
 
-    colors = ["#36A2EB80", "#FF638480", "#FF9F4080", "#FFCE5680", "#4BC0C080", "#9966FF80", "#C9CBCF80"]
+    border_colors = ["#36A2EB80", "#FF638480", "#FF9F4080", "#FFCE5680", "#4BC0C080", "#9966FF80", "#C9CBCF80"]
+    background_colors = ["#36A2EB", "#FF6384", "#FF9F40", "#FFCE56", "#4BC0C0", "#9966FF", "#C9CBCF"]
 
     def __init__(self, title: str, metric_names: list[str], metric_dates: list[str], evolutions: list[MetricEvolution]):
         assert len(metric_names) == len(evolutions)
@@ -672,17 +660,29 @@ class Chart:
         return {
             'title': self.title,
             'type': 'line',
+            'indexAxis': 'x',
             'display_legend': self.has_multi_metrics,
             'labels': self.metric_dates,
             'datasets': self._evo_datasets()
         }
     
-    def version_dict(self, chart_type: str = 'doughnut') -> dict:
-        last_date = self.metric_dates[-1]
+    def version_dict(self, chart_type: str) -> dict:
+        lastest_date = self.metric_dates[-1]
+        title = f'{self.title} in {lastest_date} (%)'
+
+        indexAxis = 'x'
+        if chart_type == 'hbar':
+            # hbar is simply a bar chart with indexAxis y
+            chart_type = 'bar'
+            indexAxis = 'y'
+        # no need to display legend in bar and hbar charts
+        display_legend = False if chart_type in ['bar', 'hbar'] else True
+        
         return {
-            'title': f'{self.title} in {last_date} (%)',
+            'title': title,
+            'indexAxis': indexAxis,
             'type': chart_type,
-            'display_legend': False if chart_type == 'bar' else True,
+            'display_legend': display_legend,
             'labels': self._version_labels(),
             'datasets': self._version_dataset()
         }
@@ -702,7 +702,8 @@ class Chart:
         # Get the most recent metric values (this year) 
         total = sum([evo.values[-1] for evo in self.evolutions])
         ratios = [round(evo.values[-1]/total*100, 0) for evo in self.evolutions]
-        return [{'data': ratios}]
+        return [{'data': ratios,
+                 'backgroundColor': self.background_colors}]
     
     def _evo_datasets(self) -> list:
         if self.has_single_metric:
@@ -725,6 +726,7 @@ class HtmlReport:
         self.metric_names = result.metric_names
         self.metric_dates = result.metric_dates
         self.metric_groups = result.metric_groups
+        self.version_charts = result.version_charts
         self.evolutions = result.evolutions()
 
     def generate_html(self) -> str:
@@ -751,7 +753,9 @@ class HtmlReport:
 
             # Build version chart if there are multiple metrics in evo chart
             if evo_chart.has_multi_metrics:
-                charts.append(evo_chart.version_dict())
+                assert group_name in self.version_charts
+                version_chart = self.version_charts[group_name]
+                charts.append(evo_chart.version_dict(version_chart))
 
         return charts
             
