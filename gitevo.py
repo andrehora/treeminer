@@ -4,7 +4,6 @@ import json
 import pathlib
 
 from datetime import date, datetime
-from numbers import Number
 from collections import Counter
 
 from tree_sitter import Node
@@ -15,14 +14,14 @@ from treeminer.repo import Repo, Commit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-def aggregate_basic(values: list[Number], measure: str) -> Number:
+def aggregate_basic(values: list[int|float], measure: str) -> int | float:
     if measure == 'max':
         return max(values)
     if measure == 'min':
         return min(values)
     return round(sum(values), 1)
 
-def aggregate_stat(values: list[Number], measure: str) -> Number:
+def aggregate_stat(values: list[int|float], measure: str) -> int | float:
     operation = getattr(statistics, measure)
     result = operation(values)
     return round(result, 1)
@@ -79,13 +78,13 @@ class DateUtil:
 class MetricInfo:
     
     def __init__(self, name: str, callback, file_extension: str, categorical: bool,
-                 project_aggregate: str, group: str, version_chart: str, top_n: int):
+                 aggregate: str, group: str, version_chart: str, top_n: int):
         
         self._name = name
         self.callback = callback
         self.file_extension = file_extension
         self.categorical = categorical
-        self.project_aggregate = project_aggregate
+        self.aggregate = aggregate
         self._group = group
         self.version_chart = version_chart
         self.top_n = top_n
@@ -143,15 +142,17 @@ class ParsedCommit:
             return len(self.nodes)
         return len(self.find_nodes_by_type(node_types))
     
-    def loc(self, node_type: str, measure: str = 'median') -> Number:
+    def loc_for(self, node_type: str, aggregate: str | None = None) -> int | float | list[int]:
 
-        if measure not in ['median', 'mean', 'mode']:
-            raise BadLOCMeasure(f'LOC measure should be median, mean, or mode')
+        if aggregate is not None and aggregate not in ['median', 'mean', 'mode']:
+            raise BadLOCAggregate(f'LOC aggregate should be median, mean, or mode')
         
         nodes = self.find_nodes_by_type([node_type])
         locs = [len(as_str(node.text).split('\n')) for node in nodes]
+        if aggregate is None:
+            return locs
         
-        return aggregate_stat(locs, measure)
+        return aggregate_stat(locs, aggregate)
     
     def find_nodes_by_type(self, node_types: list[str]) -> list[Node]:
         return [node for node in self.nodes if node.type in node_types]
@@ -178,7 +179,7 @@ class ParsedCommit:
 
 class MetricEvolution:
 
-    def __init__(self, name: str, dates: list[str], values: list[Number]):
+    def __init__(self, name: str, dates: list[str], values: list):
         self.name = name
         self.dates = dates
         self.values = values
@@ -196,10 +197,11 @@ class MetricEvolution:
     
 class MetricResult:
 
-    def __init__(self, name: str, value: Number, date: date):
+    def __init__(self, name: str, value: int | float, date: date, is_list: bool = False):
         self.name = name
         self.value = value
         self.date = date
+        self.is_list = is_list
 
 class CommitResult:
 
@@ -316,10 +318,10 @@ class Result:
 
     def _metric_evolution(self, metric_name: str, aggregate: str) -> MetricEvolution:
         # If one project, just return its dates and values
-        if len(self.project_results) == 1:
-            project = self.project_results[0]
-            values = project.metric_evolution(metric_name).values
-            return MetricEvolution(metric_name, self.metric_dates, values)
+        # if len(self.project_results) == 1:
+        #     project = self.project_results[0]
+        #     values = project.metric_evolution(metric_name).values
+        #     return MetricEvolution(metric_name, self.metric_dates, values)
 
         # If multiples projects, we need to aggregate the values...
         values_by_date = {date: [] for date in self.metric_dates}
@@ -327,7 +329,9 @@ class Result:
         for project_result in self.project_results:
             metric_evolution = project_result.metric_evolution(metric_name)
             for date, value in metric_evolution.dates_and_values:
-                values_by_date[date].append(value)
+                
+                if isinstance(value, list): values_by_date[date].extend(value)
+                else: values_by_date[date].append(value)
         
         # Aggregate values
         values = []
@@ -434,7 +438,7 @@ class GitEvo:
                *,
                file_extension: str | None = None, 
                categorical: bool = False, 
-               project_aggregate: str = 'sum',
+               aggregate: str = 'sum',
                group: str | None = None,
                version_chart: str = 'bar',
                top_n: int | None = None):
@@ -445,7 +449,7 @@ class GitEvo:
                            callback=func,
                            file_extension=file_extension,
                            categorical=categorical,
-                           project_aggregate=project_aggregate,
+                           aggregate=aggregate,
                            group=group,
                            version_chart=version_chart,
                            top_n=top_n))
@@ -479,8 +483,8 @@ class GitEvo:
             if self.global_file_extension is None and metric_info.file_extension is None:
                 raise FileExtensionNotFound(f'file_extension should be defined globally or in metric {metric_info.name}')
             
-            if metric_info.project_aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
-                raise BadAggregate(f'project_aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min, not {metric_info.project_aggregate}')
+            if metric_info.aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
+                raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min, not {metric_info.aggregate}')
             
             if metric_info.version_chart not in ['donut', 'pie', 'bar', 'hbar']:
                 raise BadVersionChart(f'version chart in {metric_info.name} should be donut, pie, bar, or hbar, not {metric_info.version_chart}')
@@ -540,27 +544,26 @@ class GitEvo:
                 if metric_info.categorical: 
 
                     if not isinstance(metric_value, list):
-                        raise BadReturnType(f'categorical metric {metric_info.name} should return list of strings')
+                        raise BadReturnType(f'categorical metric {metric_info.name} should return list[str]')
 
                     for real_name, value in Counter(metric_value).most_common():
-                        assert isinstance(real_name, str), f'categorical metric {metric_info.name} should return list of strings'
+                        assert isinstance(real_name, str), f'categorical metric {metric_info.name} should return return list[str]'
                         metric_result = MetricResult(name=real_name, value=value, date=commit_result.date)
                         commit_result.add_metric_result(metric_result)
                         
                         # Register the real name of the categorical metric
                         result.add_metric_group(real_name, metric_info.group)
-                        result.add_metric_aggregate(real_name, metric_info.project_aggregate)
+                        result.add_metric_aggregate(real_name, metric_info.aggregate)
                 
                 # Process numerical metrics
                 else:
 
-                    if not isinstance(metric_value, (int, float)):
-                        raise BadReturnType(f'numerical metric {metric_info.name} should return int or float')
+                    if not isinstance(metric_value, (int, float, list)):
+                        raise BadReturnType(f'numerical metric {metric_info.name} should return int, float, or list[int|float]')
 
                     metric_result = MetricResult(name=metric_info.name, value=metric_value, date=commit_result.date)
                     commit_result.add_metric_result(metric_result)
-
-                    result.add_metric_aggregate(metric_info.name, metric_info.project_aggregate)
+                    result.add_metric_aggregate(metric_info.name, metric_info.aggregate)
 
             project_result.add_commit_result(commit_result)
         
@@ -620,7 +623,7 @@ class BadReturnType(Exception):
 class BadDateUnit(Exception):
     pass
 
-class BadLOCMeasure(Exception):
+class BadLOCAggregate(Exception):
     pass
 
 class BadGitPath(Exception):
@@ -731,7 +734,7 @@ class Chart:
         return [{'label': metric.name, 
                  'data': metric.values} for metric in self.group_evolution]
     
-    def _version_dataset(self) -> list[Number]:
+    def _version_dataset(self) -> list:
         # Get the most recent metric values (this year) 
         total = sum([metric.values[-1] for metric in self.group_evolution_original])
         ratios = [round(metric.values[-1]/total*100, 0) for metric in self.group_evolution]
