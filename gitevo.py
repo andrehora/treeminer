@@ -329,7 +329,7 @@ class Result:
         for project_result in self.project_results:
             metric_evolution = project_result.metric_evolution(metric_name)
             for date, value in metric_evolution.dates_and_values:
-                
+
                 if isinstance(value, list): values_by_date[date].extend(value)
                 else: values_by_date[date].append(value)
         
@@ -468,7 +468,7 @@ class GitEvo:
     
     def run(self) -> Result:
         print(f'Running GitEvo...')
-        print(f'Git projects: {len(self.projects)}')
+        # print(f'Git projects: {len(self.projects)}')
         result = self._compute_metrics()
         html_link = result.as_html()
         print(f'HTML report generated at {html_link}')
