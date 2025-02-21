@@ -813,5 +813,5 @@ class HtmlReport:
         return source.replace(self.TITLE_PLACEHOLDER, content)
 
     def _replace_created_date(self, source):
-        now = str(datetime.now().astimezone())
+        now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
         return source.replace(self.CREATED_DATE_PLACEHOLDER, now)
