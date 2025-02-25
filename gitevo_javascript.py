@@ -3,7 +3,7 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='JavaScript', project_path='./projects_javascript', file_extension='.js', date_unit='year', since_year=2021)
+evo = GitEvo(title='JavaScript', project_path='./projects_javascript', file_extension='.js', date_unit='year', since_year=2020)
 
 
 @evo.metric('Analyzed JavaScript files', aggregate='sum')

@@ -3,7 +3,7 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='TypeScript', project_path='./projects_typescript', file_extension='.ts', date_unit='year', since_year=2021)
+evo = GitEvo(title='TypeScript', project_path='./projects_typescript', file_extension='.ts', date_unit='year', since_year=2020)
 
 
 @evo.metric('Analyzed TypeScript files', aggregate='sum')

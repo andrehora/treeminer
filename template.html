@@ -31,11 +31,22 @@
 
         // Generate charts
         jsonData.forEach((chartData, index) => {
-		
-		  const hr = document.createElement("hr");
-      const br = document.createElement("br");
-		  chartWrapper.appendChild(hr);
-      chartWrapper.appendChild(br);
+        
+        const hr = document.createElement('hr');
+        const br = document.createElement('br');
+        
+        const chartId = chartData.title.toLowerCase().replace(/\s+/g, '-');
+        const section = document.createElement('div');
+        const link = document.createElement('a');
+        section.id = chartId
+        link.href = `#${chartId}`;
+        link.textContent = '🔗';
+        link.style = 'all: unset; cursor: pointer;'
+
+        chartWrapper.appendChild(hr);
+        chartWrapper.appendChild(br);
+        chartWrapper.appendChild(link);
+        chartWrapper.appendChild(section);
 		  
           // Create chart canvas
           const canvas = document.createElement('canvas');

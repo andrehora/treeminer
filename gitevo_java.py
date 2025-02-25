@@ -23,7 +23,12 @@ def type_definitions(commit: ParsedCommit):
 
 @evo.metric('Methods', aggregate='sum')
 def type_definitions(commit: ParsedCommit):
-    return commit.count_nodes(['method_declaration', 'constructor_declaration'])
+    return commit.count_nodes(['method_declaration'])
+
+
+@evo.metric('Median method LOC', aggregate='median')
+def functions(commit: ParsedCommit):
+    return commit.loc_for('method_declaration', 'median')
 
 
 @evo.metric('Conditional statements', aggregate='sum', categorical=True)

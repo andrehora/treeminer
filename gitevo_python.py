@@ -3,7 +3,7 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='Python', project_path='./projects_python', file_extension='.py', date_unit='year', since_year=2021)
+evo = GitEvo(title='Python', project_path='./projects_python/rich', file_extension='.py', date_unit='year', since_year=2020)
 
 
 @evo.metric('Analyzed Python files', aggregate='sum')
@@ -26,19 +26,36 @@ def definitions(commit: ParsedCommit):
     return commit.node_types(['class_definition', 'function_definition', 'decorated_definition'])
 
 
-@evo.metric('class_definition_loc', aggregate='median', group='Median definition LOC')
-def classes(commit: ParsedCommit):
+@evo.metric('class_loc', aggregate='median', group='Median definition LOC')
+def class_loc(commit: ParsedCommit):
     return commit.loc_for('class_definition', 'median')
 
 
-@evo.metric('function_definition_loc', aggregate='median', group='Median definition LOC')
-def functions(commit: ParsedCommit):
+@evo.metric('function_loc', aggregate='median', group='Median definition LOC')
+def function_loc(commit: ParsedCommit):
     return commit.loc_for('function_definition', 'median')
 
 
-@evo.metric('decorated_definition_loc', aggregate='median', group='Median definition LOC')
-def definitions(commit: ParsedCommit):
+@evo.metric('decorated_loc', aggregate='median', group='Median definition LOC')
+def decorated_loc(commit: ParsedCommit):
     return commit.loc_for('decorated_definition', 'median')
+
+
+@evo.metric('Decorators: @dataclass', aggregate='sum')
+def definitions(commit: ParsedCommit):
+    decorated_definitions = commit.find_nodes_by_type(['decorated_definition'])
+    decorated_classes = [decorated_definition for decorated_definition in decorated_definitions if decorated_definition.child_by_field_name('definition').type == 'class_definition']
+    dataclasses = [decorated_class for decorated_class in decorated_classes if as_str(decorated_class.child(0).text).startswith('@dataclass')]
+    return len(dataclasses)
+
+
+@evo.metric('Decorators: @classmethod and @staticmethod', aggregate='sum', categorical=True)
+def definitions(commit: ParsedCommit):
+    decorated_definitions = commit.find_nodes_by_type(['decorated_definition'])
+    decorated_functions = [decorated_definition for decorated_definition in decorated_definitions if decorated_definition.child_by_field_name('definition').type == 'function_definition']
+    classmethods = ['@classmethod' for decorated_function in decorated_functions if as_str(decorated_function.child(0).text).startswith('@classmethod')]
+    staticmethods = ['@staticmethod' for decorated_function in decorated_functions if as_str(decorated_function.child(0).text).startswith('@staticmethod')]
+    return classmethods + staticmethods
 
 
 @evo.metric('Functions: def vs. async def', categorical=True, aggregate='sum', version_chart='donut')
