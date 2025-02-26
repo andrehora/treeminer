@@ -82,7 +82,7 @@ class BaseMiner:
 # https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json
 class PythonMiner(BaseMiner):
     name = 'python'
-    extension = 'py'
+    extension = '.py'
     tree_sitter_language = tree_sitter_python.language()
 
     import_nodes = ['import_statement', 'import_from_statement', 'future_import_statement']
@@ -95,7 +95,7 @@ class PythonMiner(BaseMiner):
 # https://github.com/tree-sitter/tree-sitter-javascript/blob/master/src/node-types.json
 class JavaScriptMiner(BaseMiner):
     name = 'javascript'
-    extension = 'js'
+    extension = '.js'
     tree_sitter_language = tree_sitter_javascript.language()
 
     import_nodes = ['import_statement']
@@ -109,19 +109,13 @@ class JavaScriptMiner(BaseMiner):
 # https://github.com/tree-sitter/tree-sitter-typescript/blob/master/typescript/src/node-types.json
 class TypeScriptMiner(BaseMiner):
     name = 'typescript'
-    extension = 'ts'
+    extension = '.ts'
     tree_sitter_language = tree_sitter_typescript.language_typescript()
-
-    # import_nodes = ['import_declaration']
-    # class_nodes = ['class_declaration']
-    # method_nodes = ['method_declaration', 'constructor_declaration', 'compact_constructor_declaration']
-    # call_nodes = ['method_invocation', 'object_creation_expression']
-    # comment_nodes = ['line_comment', 'block_comment']
 
 # https://github.com/tree-sitter/tree-sitter-java/blob/master/src/node-types.json
 class JavaMiner(BaseMiner):
     name = 'java'
-    extension = 'java'
+    extension = '.java'
     tree_sitter_language = tree_sitter_java.language()
 
     import_nodes = ['import_declaration']
@@ -130,4 +124,4 @@ class JavaMiner(BaseMiner):
     call_nodes = ['method_invocation', 'object_creation_expression']
     comment_nodes = ['line_comment', 'block_comment']
 
-buildin_miners = [PythonMiner, JavaScriptMiner, TypeScriptMiner, JavaMiner]
+buildin_miners = [JavaScriptMiner, TypeScriptMiner, JavaMiner]

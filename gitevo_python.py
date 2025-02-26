@@ -1,9 +1,12 @@
 from gitevo import GitEvo, ParsedCommit
+import tree_sitter_python
+
 
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
 evo = GitEvo(title='Python', project_path='./projects_python/rich', file_extension='.py', date_unit='year', since_year=2020)
+evo.add_language('.py', tree_sitter_python.language())
 
 
 @evo.metric('Analyzed Python files', aggregate='sum')

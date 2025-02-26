@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
     
 class CodeParser:
 
-    def __init__(self, source_code: str, tree_sitter_language):
+    def __init__(self, source_code: str, tree_sitter_language: object):
         lang = Language(tree_sitter_language)
         parser = Parser(lang)
         self._tree = parser.parse(bytes(source_code, "utf-8"))
@@ -90,6 +90,7 @@ class File(Parsable):
             data = self._git_blob.data_stream.read()
             return data.decode("utf-8", "ignore")
         except:
+            print(f'WARNING: Could not parse file {self.filename}')
             return ''
         
     @property
@@ -252,15 +253,8 @@ class Repo(PydrillerRepository):
         self._miners = []
         self._miners.extend(buildin_miners)
 
-    def add_miner(self, miner):
+    def add_miner(self, miner: BaseMiner):
         self._miners.insert(0, miner) 
-
-    # @property
-    # def lastest_commit(self) -> Commit:
-    #     pd_git = PydrillerGit(self.path_to_repo)
-    #     pd_commit = pd_git.get_head()
-    #     pd_git.clear()
-    #     return Commit(pd_commit, self._miners)
     
     @property
     def lastest_commit(self) -> Commit:

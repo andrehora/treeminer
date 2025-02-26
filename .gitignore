@@ -1,6 +1,7 @@
-playground
+playground.py
+index.html
 .DS_Store
-.git_projects
+projects_*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

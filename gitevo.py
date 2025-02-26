@@ -9,6 +9,7 @@ from collections import Counter
 from tree_sitter import Node
 from git.repo.fun import is_git_dir
 from treeminer.repo import Repo, Commit
+from treeminer.miners import BaseMiner
 
 
 def as_str(text: bytes) -> str:
@@ -74,6 +75,12 @@ class DateUtil:
     @classmethod
     def _convert_tuples_to_dates(cls, dates: list[tuple[int,int]]) -> list[date]:
         return [date(year, month, 1) for month, year in dates]
+    
+
+class GenericMiner(BaseMiner):
+    extension: str = None
+    tree_sitter_language: object = None
+
 
 class MetricInfo:
     
@@ -148,6 +155,10 @@ class ParsedCommit:
             raise BadLOCAggregate(f'LOC aggregate should be median, mean, or mode')
         
         nodes = self.find_nodes_by_type([node_type])
+
+        if not nodes:
+            return []
+
         locs = [len(as_str(node.text).split('\n')) for node in nodes]
         if aggregate is None:
             return locs
@@ -317,15 +328,8 @@ class Result:
         return sorted(list(dates))
 
     def _metric_evolution(self, metric_name: str, aggregate: str) -> MetricEvolution:
-        # If one project, just return its dates and values
-        # if len(self.project_results) == 1:
-        #     project = self.project_results[0]
-        #     values = project.metric_evolution(metric_name).values
-        #     return MetricEvolution(metric_name, self.metric_dates, values)
-
-        # If multiples projects, we need to aggregate the values...
+        
         values_by_date = {date: [] for date in self.metric_dates}
-
         for project_result in self.project_results:
             metric_evolution = project_result.metric_evolution(metric_name)
             for date, value in metric_evolution.dates_and_values:
@@ -336,6 +340,10 @@ class Result:
         # Aggregate values
         values = []
         for metric_values in values_by_date.values():
+
+            if not metric_values:
+                values.append(0)
+                continue
             
             value = None
             if aggregate in ['sum', 'max', 'min']:
@@ -404,6 +412,12 @@ class GitEvo:
 
         self._analyzed_commits: list[str] = []
         self._repo = Repo(self.projects)
+
+    def add_language(self, extension: str, tree_sitter_language: object):
+        miner = GenericMiner()
+        miner.extension = extension
+        miner.tree_sitter_language = tree_sitter_language
+        self._repo.add_miner(miner)
 
     def _check_valid_git_projects(self, project_path: str | list[str]) -> str | list[str]:
 
@@ -737,6 +751,8 @@ class Chart:
     def _version_dataset(self) -> list:
         # Get the most recent metric values (this year) 
         total = sum([metric.values[-1] for metric in self.group_evolution_original])
+        if total == 0:
+            return []
         ratios = [round(metric.values[-1]/total*100, 0) for metric in self.group_evolution]
         
         return [{'data': ratios,
