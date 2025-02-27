@@ -3,7 +3,9 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='Java', project_path='./projects_java', file_extension='.java', date_unit='year', since_year=2020)
+evo = GitEvo(title='Java', html_filename='index_java.html', 
+             project_path='./projects_java', file_extension='.java',
+             date_unit='year', since_year=2020)
 
 
 @evo.metric('Analyzed Java files', aggregate='sum')
@@ -31,29 +33,14 @@ def functions(commit: ParsedCommit):
     return commit.loc_for('method_declaration', 'median')
 
 
-@evo.metric('Conditional statements', aggregate='sum', categorical=True)
+@evo.metric('Conditionals', aggregate='sum', categorical=True)
 def conditionals(commit: ParsedCommit):
     return commit.node_types(['if_statement', 'switch_expression', 'ternary_expression'])
-
-
-@evo.metric('Record patterns', aggregate='sum')
-def conditionals(commit: ParsedCommit):
-    return commit.count_nodes(['record_pattern'])
 
 
 @evo.metric('Switches', aggregate='sum', categorical=True)
 def conditionals(commit: ParsedCommit):
     return commit.node_types(['switch_block_statement_group', 'switch_rule'])
-
-
-@evo.metric('Switches: yield_statement', aggregate='sum')
-def conditionals(commit: ParsedCommit):
-    return commit.count_nodes(['yield_statement'])
-
-
-@evo.metric('Switches: guard', aggregate='sum')
-def conditionals(commit: ParsedCommit):
-    return commit.count_nodes(['guard'])
 
 
 @evo.metric('Loops', aggregate='sum', categorical=True, version_chart='donut')

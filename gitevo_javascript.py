@@ -3,7 +3,9 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='JavaScript', project_path='./projects_javascript', file_extension='.js', date_unit='year', since_year=2020)
+evo = GitEvo(title='JavaScript', html_filename='index_js.html', 
+             project_path='./projects_javascript', file_extension='.js', 
+             date_unit='year', since_year=2020)
 
 
 @evo.metric('Analyzed JavaScript files', aggregate='sum')
@@ -16,6 +18,11 @@ def classes(commit: ParsedCommit):
     return commit.node_types(['class_declaration'])
 
 
+@evo.metric('Variable declarations', aggregate='sum', categorical=True, version_chart='donut')
+def variable_declarations(commit: ParsedCommit):
+    return commit.node_types(['const', 'let', 'var'])
+
+
 @evo.metric('Functions/methods', aggregate='sum', categorical=True)
 def definitions(commit: ParsedCommit):
     method_nodes = ['function_declaration', 'method_definition', 'generator_function_declaration', 
@@ -23,14 +30,9 @@ def definitions(commit: ParsedCommit):
     return commit.node_types(method_nodes)
 
 
-@evo.metric('Variable declarations', aggregate='sum', categorical=True, version_chart='donut')
-def variable_declarations(commit: ParsedCommit):
-    return commit.node_types(['const', 'let', 'var'])
-
-
-@evo.metric('Conditional statements', aggregate='sum', categorical=True)
+@evo.metric('Conditionals', aggregate='sum', categorical=True)
 def conditionals(commit: ParsedCommit):
-    return commit.node_types(['if_statement', 'switch_statement'])
+    return commit.node_types(['if_statement', 'switch_statement', 'ternary_expression'])
 
 
 @evo.metric('Loops', aggregate='sum', categorical=True, version_chart='donut')
@@ -53,14 +55,8 @@ def await_expression(commit: ParsedCommit):
     return commit.node_types(['await_expression'])
 
 
-@evo.metric('Empty statement', aggregate='sum', categorical=True)
-def empty(commit: ParsedCommit):
-    return commit.node_types(['empty_statement'])
-
-
 @evo.metric('Comments', aggregate='sum', categorical=True)
 def comments(commit: ParsedCommit):
     return commit.node_types(['comment'])
-
 
 evo.run()

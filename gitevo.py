@@ -270,8 +270,9 @@ class ProjectResult:
 
 class Result:
 
-    def __init__(self, title: str, date_unit: str, registered_metrics: list[MetricInfo]):
+    def __init__(self, title: str, html_filename: str, date_unit: str, registered_metrics: list[MetricInfo]):
         self.title = title
+        self.html_filename = html_filename
         self.registered_metrics = registered_metrics
         DateUtil.date_unit = date_unit
 
@@ -392,7 +393,8 @@ class GitEvo:
                 file_extension: str | None = None, 
                 date_unit: str = 'year', 
                 since_year: int | None = None,
-                title: str = 'GitEvo report'):
+                title: str = 'GitEvo report',
+                html_filename = 'index.html'):
                         
         self.projects = self._check_valid_git_projects(project_path)
         
@@ -406,6 +408,7 @@ class GitEvo:
         self.date_unit = date_unit
         self.since_year = since_year
         self.title = title.strip()
+        self.html_filename = html_filename.strip()
 
         self.registered_metrics: list[MetricInfo] = []
         self.registered_before_commits: list[BeforeCommitInfo] = []
@@ -414,7 +417,7 @@ class GitEvo:
         self._repo = Repo(self.projects)
 
     def add_language(self, extension: str, tree_sitter_language: object):
-        miner = GenericMiner()
+        miner = GenericMiner
         miner.extension = extension
         miner.tree_sitter_language = tree_sitter_language
         self._repo.add_miner(miner)
@@ -491,7 +494,7 @@ class GitEvo:
     def _compute_metrics(self) -> Result:
 
         # Sanity checks on registered_metrics
-        result = Result(self.title, self.date_unit, self.registered_metrics)
+        result = Result(self.title, self.html_filename, self.date_unit, self.registered_metrics)
         for metric_info in self.registered_metrics:
 
             if self.global_file_extension is None and metric_info.file_extension is None:
@@ -761,15 +764,14 @@ class Chart:
 
 class HtmlReport:
 
-    HTML_FILENAME = 'index.html'
     TEMPLATE_HTML_FILENAME = 'template.html'
-
     JSON_DATA_PLACEHOLDER = '{{JSON_DATA}}'
     TITLE_PLACEHOLDER = '{{TITLE}}'
     CREATED_DATE_PLACEHOLDER = '{{CREATED_DATE}}'
 
     def __init__(self, result: Result):
         self.title = result.title
+        self.html_filename = result.html_filename
         self.metric_dates = result.metric_dates
         self.metric_groups = result.metric_groups
         self.metric_version_charts = result.metric_version_charts
@@ -784,7 +786,7 @@ class HtmlReport:
         content = self._replace_title(content, self.title)
         content = self._replace_created_date(content)
         self._write_html(content)
-        return os.path.join(os.getcwd(), self.HTML_FILENAME)
+        return os.path.join(os.getcwd(), self.html_filename)
 
     def _json_data(self):
         return self._build_charts()
@@ -819,7 +821,7 @@ class HtmlReport:
         return template
 
     def _write_html(self, html_content):
-        with open(self.HTML_FILENAME, 'w') as output_file:
+        with open(self.html_filename, 'w') as output_file:
             output_file.write(html_content)
 
     def _replace_json_data(self, source, json_data):

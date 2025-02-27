@@ -124,4 +124,4 @@ class JavaMiner(BaseMiner):
     call_nodes = ['method_invocation', 'object_creation_expression']
     comment_nodes = ['line_comment', 'block_comment']
 
-buildin_miners = [JavaScriptMiner, TypeScriptMiner, JavaMiner]
+buildin_miners = [PythonMiner, JavaScriptMiner, TypeScriptMiner, JavaMiner]

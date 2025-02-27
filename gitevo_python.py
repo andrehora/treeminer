@@ -5,8 +5,10 @@ import tree_sitter_python
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='Python', project_path='./projects_python/rich', file_extension='.py', date_unit='year', since_year=2020)
-evo.add_language('.py', tree_sitter_python.language())
+evo = GitEvo(title='Python', html_filename='index_python.html', 
+             project_path='./projects_python', file_extension='.py', 
+             date_unit='year', since_year=2020)
+# evo.add_language('.py', tree_sitter_python.language())
 
 
 @evo.metric('Analyzed Python files', aggregate='sum')
@@ -73,7 +75,7 @@ def return_types(commit: ParsedCommit):
     return ['return_type' if func.child_by_field_name('return_type') else 'no return_type' for func in function_definitions]
 
 
-@evo.metric('Functions: parameter types', categorical=True, aggregate='sum', version_chart='hbar')
+@evo.metric('Functions: parameter types', categorical=True, aggregate='sum', version_chart='hbar', top_n=5)
 def parameter_types(commit: ParsedCommit):
     function_definitions = commit.find_nodes_by_type(['function_definition'])
     func_def_parameters = [func.child_by_field_name('parameters') for func in function_definitions if func.child_by_field_name('parameters')]
@@ -95,12 +97,22 @@ def control_flow(commit: ParsedCommit):
     return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
 
 
-@evo.metric('for vs. while', aggregate='sum', categorical=True, version_chart='donut')
+@evo.metric('Control flow statements', aggregate='sum', categorical=True)
+def control_flow(commit: ParsedCommit):
+    return commit.node_types(['for_statement', 'while_statement', 'if_statement', 'try_statement', 'match_statement', 'with_statement'])
+
+
+@evo.metric('Conditionals', aggregate='sum', categorical=True)
+def conditionals(commit: ParsedCommit):
+    return commit.node_types(['if_statement', 'conditional_expression'])
+
+
+@evo.metric('Loops', aggregate='sum', categorical=True, version_chart='donut')
 def for_while(commit: ParsedCommit):
-    return commit.node_types(['for_statement', 'while_statement'])
+    return commit.node_types(['for_statement', 'while_statement', 'for_in_clause'])
 
 
-@evo.metric('continue vs. break', aggregate='sum', categorical=True, version_chart='donut')
+@evo.metric('continue vs. break', aggregate='sum', categorical=True)
 def continue_break(commit: ParsedCommit):
     return commit.node_types(['break_statement', 'continue_statement'])
 

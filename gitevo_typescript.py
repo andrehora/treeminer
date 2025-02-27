@@ -3,7 +3,9 @@ from gitevo import GitEvo, ParsedCommit
 def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
-evo = GitEvo(title='TypeScript', project_path='./projects_typescript', file_extension='.ts', date_unit='year', since_year=2020)
+evo = GitEvo(title='TypeScript', html_filename='index_ts.html', 
+             project_path='./projects_typescript', file_extension='.ts',
+             date_unit='year', since_year=2020)
 
 
 @evo.metric('Analyzed TypeScript files', aggregate='sum')
@@ -11,12 +13,12 @@ def files(commit: ParsedCommit):
     return len(commit.parsed_files)
 
 
-@evo.metric('Type declarations: classes, interfaces, and type aliases', aggregate='sum', categorical=True)
+@evo.metric('Classes, interfaces, and type aliases', aggregate='sum', categorical=True)
 def type_definitions(commit: ParsedCommit):
     return commit.node_types(['class_declaration', 'interface_declaration', 'type_alias_declaration'])
 
 
-@evo.metric('Variable declarations: const, let, and var', aggregate='sum', categorical=True, version_chart='donut')
+@evo.metric('Variable declarations', aggregate='sum', categorical=True, version_chart='donut')
 def variable_declarations(commit: ParsedCommit):
     return commit.node_types(['const', 'let', 'var'])
 
@@ -26,7 +28,12 @@ def variables(commit: ParsedCommit):
     return ['typed_var' if var.child_by_field_name('type') else 'untyped_var' for var in commit.find_nodes_by_type(['variable_declarator'])]
 
 
-@evo.metric('Function/method declarations', aggregate='sum', categorical=True)
+@evo.metric('Types: any vs. unknown', aggregate='sum', categorical=True)
+def expections(commit: ParsedCommit):
+    return commit.node_types(['any', 'unknown'])
+
+
+@evo.metric('Function/methods', aggregate='sum', categorical=True)
 def function_definitions(commit: ParsedCommit):
     nodes = ['function_declaration', 'method_definition', 'generator_function_declaration', 'arrow_function', 'generator_function', 'function_expression']
     return commit.node_types(nodes)
@@ -55,9 +62,9 @@ def req_opt_parameters(commit: ParsedCommit):
     return commit.node_types(['required_parameter', 'optional_parameter'])
 
 
-@evo.metric('Conditional statements', aggregate='sum', categorical=True)
+@evo.metric('Conditionals', aggregate='sum', categorical=True)
 def conditionals(commit: ParsedCommit):
-    return commit.node_types(['if_statement', 'switch_statement'])
+    return commit.node_types(['if_statement', 'switch_statement', 'ternary_expression'])
 
 
 @evo.metric('Loops', aggregate='sum', categorical=True, version_chart='donut')
