@@ -49,8 +49,11 @@ class Parsable:
     def __init__(self, miner: BaseMiner | None):
         self._miner = miner
         self._code_parser = None
+        self.loc = 0
         if self._miner:
-            self._code_parser = CodeParser(self.source_code, self._miner.tree_sitter_language)
+            source_code = self.source_code
+            self.loc = len(source_code.split('\n'))
+            self._code_parser = CodeParser(source_code, self._miner.tree_sitter_language)
 
     @property
     def mine(self) -> BaseMiner:

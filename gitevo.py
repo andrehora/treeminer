@@ -122,10 +122,11 @@ class BeforeCommitInfo:
     
 class ParsedFile:
 
-    def __init__(self, name: str, path: str, nodes: list[Node]):
+    def __init__(self, name: str, path: str, nodes: list[Node], loc: int):
         self.name = name
         self.path = path
         self.nodes = nodes
+        self.loc = loc
 
 class ParsedCommit:
     
@@ -134,10 +135,20 @@ class ParsedCommit:
         self.date = date
         self.file_extension = file_extension
         self.parsed_files = parsed_files
+        self._nodes = None
+        self._loc = None
 
     @property
     def nodes(self) -> list[Node]:
-        return [node for file in self.parsed_files for node in file.nodes]
+        if self._nodes is None:
+            self._nodes = [node for file in self.parsed_files for node in file.nodes]
+        return self._nodes
+    
+    @property
+    def loc(self) -> int:
+        if self._loc is None:
+            self._loc = sum([file.loc for file in self.parsed_files])
+        return self._loc
     
     def node_types(self, node_types: list[str] = None) -> list[str]:
         if node_types is None:
@@ -624,7 +635,7 @@ class ParsedCommits:
         parsed_files = []
         for file in self.commit.all_files([file_extension]):
             file_nodes = [node for node in file.tree_nodes]
-            parsed_file = ParsedFile(file.filename, file.path, file_nodes)
+            parsed_file = ParsedFile(file.filename, file.path, file_nodes, file.loc)
             parsed_files.append(parsed_file)
         return ParsedCommit(self.commit.hash, self.commit.committer_date, file_extension, parsed_files)
     
