@@ -4,7 +4,7 @@ def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
 evo = GitEvo(title='Java', html_filename='index_java.html', 
-             project_path='./projects_java', file_extension='.java',
+             repo='./projects_java', extension='.java',
              date_unit='year', since_year=2020)
 
 

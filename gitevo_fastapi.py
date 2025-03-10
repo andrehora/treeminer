@@ -223,7 +223,7 @@ class FastAPICommit:
 
 
 evo = GitEvo(title='FastAPI', html_filename='index_fastapi.html', 
-             project_path='./projects_fastapi', file_extension='.py',
+             repo='./projects_fastapi', extension='.py',
              date_unit='year', since_year=2020)
 
 @evo.before(file_extension='.py')

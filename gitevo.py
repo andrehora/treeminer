@@ -400,22 +400,24 @@ class GitEvo:
 
     def __init__(self,
                 *,
-                project_path: str | list[str],
-                file_extension: str | None = None, 
+                repo: str | list[str],
+                extension: str | None = None, 
                 date_unit: str = 'year', 
                 since_year: int | None = None,
                 title: str = 'GitEvo report',
                 html_filename = 'index.html'):
                         
-        self.projects = self._check_valid_git_projects(project_path)
+        self.project_repos = self._check_valid_git_projects(repo)
         
         if date_unit not in ['year', 'month']:
             raise BadDateUnit(f'date_unit must be year or month, not {date_unit}')
         
+        if since_year is None:
+            since_year = date.today().year - 5
         if since_year > date.today().year:
             raise BadSinceYear(f'since_year must be at most {date.today().year}')
 
-        self.global_file_extension = file_extension
+        self.global_file_extension = extension
         self.date_unit = date_unit
         self.since_year = since_year
         self.title = title.strip()
@@ -425,7 +427,7 @@ class GitEvo:
         self.registered_before_commits: list[BeforeCommitInfo] = []
 
         self._analyzed_commits: list[str] = []
-        self._repo = Repo(self.projects)
+        self._repo = Repo(self.project_repos)
 
     def add_language(self, extension: str, tree_sitter_language: object):
         miner = GenericMiner
@@ -433,38 +435,47 @@ class GitEvo:
         miner.tree_sitter_language = tree_sitter_language
         self._repo.add_miner(miner)
 
-    def _check_valid_git_projects(self, project_path: str | list[str]) -> str | list[str]:
+    def _check_valid_git_projects(self, repo: str | list[str]) -> str | list[str]:
 
-        if not project_path or project_path is None:
-            raise BadGitPath(f'project_path is not a git project')
+        if not repo or repo is None:
+            raise BadGitRepo(f'project_path is not a git repository')
 
         # project_path is str
-        if isinstance(project_path, str):
-            # First, check if project_path is a git project
-            if self._is_git_project(project_path):
-                return project_path
-            # Second, check if project_path is a dir with git projects
+        if isinstance(repo, str):
+            if self._is_git_remote(repo) or self._is_git_dir(repo):
+                return repo
             else:
-                paths = self._projects_dir(project_path)
+                # Check if project_path is a dir with git projects
+                paths = self._projects_dir(repo)
                 if not paths:
-                    raise BadGitPath(f'{project_path} is not a dir with git projects')
+                    raise BadGitRepo(f'{repo} is not a dir with git repositories')
                 for path in paths:
-                    if not self._is_git_project(path):
-                        raise BadGitPath(f'{path} is not a git project')
+                    if not self._is_git_dir(path):
+                        raise BadGitRepo(f'{path} is not a git repository')
                 return paths
         
         # project_path is list
-        if isinstance(project_path, list):
-            for path in project_path:
-                if not self._is_git_project(path):
-                    raise BadGitPath(f'{path} is not a git project')
-            return project_path
+        if isinstance(repo, list):
+            for path in repo:
+                if not self._is_git_remote(path) and not self._is_git_dir(path):
+                    raise BadGitRepo(f'{path} is not a git repository')
+            return repo
         
-        raise BadGitPath(f'Invalid project_path')
+        raise BadGitRepo(f'Invalid project_path')
+    
+    def _is_git_dir(self, project_path):
+        git_path = os.path.join(project_path, '.git')
+        return is_git_dir(git_path)
+    
+    def _is_git_remote(self, repo: str) -> bool:
+        return repo.startswith(("git@", "https://", "http://", "git://"))
+    
+    def _projects_dir(self, folder_path: str):
+        return [str(d.resolve()) for d in pathlib.Path(folder_path).iterdir() if d.is_dir()]
 
     def metric(self, name: str = None,
                *,
-               file_extension: str | None = None, 
+               extension: str | None = None, 
                categorical: bool = False, 
                aggregate: str = 'sum',
                group: str | None = None,
@@ -475,7 +486,7 @@ class GitEvo:
             self.registered_metrics.append(
                 MetricInfo(name=name, 
                            callback=func,
-                           file_extension=file_extension,
+                           file_extension=extension,
                            categorical=categorical,
                            aggregate=aggregate,
                            group=group,
@@ -599,13 +610,7 @@ class GitEvo:
             
     def _all_file_extensions(self) -> set[str]:
         return set([metric_info.file_extension for metric_info in self.registered_metrics])
-    
-    def _projects_dir(self, folder_path: str):
-        return [str(d.resolve()) for d in pathlib.Path(folder_path).iterdir() if d.is_dir()]
-    
-    def _is_git_project(self, project_path):
-        git_path = os.path.join(project_path, '.git')
-        return is_git_dir(git_path)
+
     
 class ParsedCommits:
 
@@ -654,7 +659,7 @@ class BadDateUnit(Exception):
 class BadLOCAggregate(Exception):
     pass
 
-class BadGitPath(Exception):
+class BadGitRepo(Exception):
     pass
 
 class BadVersionChart(Exception):

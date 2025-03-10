@@ -6,7 +6,7 @@ def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
 evo = GitEvo(title='Python', html_filename='index_python.html', 
-             project_path='./projects_python', file_extension='.py', 
+             repo='./projects_python', extension='.py', 
              date_unit='year', since_year=2020)
 # evo.add_language('.py', tree_sitter_python.language())
 

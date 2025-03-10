@@ -4,7 +4,7 @@ def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
 evo = GitEvo(title='TypeScript', html_filename='index_ts.html', 
-             project_path='./projects_typescript', file_extension='.ts',
+             repo='./projects_typescript', extension='.ts',
              date_unit='year', since_year=2020)
 
 
