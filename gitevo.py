@@ -85,7 +85,8 @@ class GenericMiner(BaseMiner):
 class MetricInfo:
     
     def __init__(self, name: str, callback, file_extension: str, categorical: bool,
-                 aggregate: str, group: str, version_chart: str, top_n: int):
+                 aggregate: str, group: str, version_chart_type: str, show_version_chart: bool,
+                 top_n: int):
         
         self._name = name
         self.callback = callback
@@ -93,7 +94,8 @@ class MetricInfo:
         self.categorical = categorical
         self.aggregate = aggregate
         self._group = group
-        self.version_chart = version_chart
+        self.version_chart_type = version_chart_type
+        self.show_version_chart = show_version_chart
         self.top_n = top_n
 
     @property
@@ -281,10 +283,11 @@ class ProjectResult:
 
 class Result:
 
-    def __init__(self, title: str, html_filename: str, date_unit: str, registered_metrics: list[MetricInfo]):
+    def __init__(self, title: str, html_filename: str, date_unit: str, registered_metrics: list[MetricInfo], last_version_only: bool):
         self.title = title
         self.html_filename = html_filename
         self.registered_metrics = registered_metrics
+        self.last_version_only = last_version_only
         DateUtil.date_unit = date_unit
 
         self.project_results: list[ProjectResult] = []
@@ -303,8 +306,12 @@ class Result:
         return self.metrics_data._groups_and_names
     
     @property
-    def metric_version_charts(self) -> dict[str, str]:
-        return {metric_info.group: metric_info.version_chart for metric_info in self.registered_metrics}
+    def metric_version_chart_types(self) -> dict[str, str]:
+        return {metric_info.group: metric_info.version_chart_type for metric_info in self.registered_metrics}
+    
+    @property
+    def metric_show_version_charts(self) -> dict[str, bool]:
+        return {metric_info.group: metric_info.show_version_chart for metric_info in self.registered_metrics} 
     
     @property
     def metric_tops_n(self) -> dict[str, str]:
@@ -405,7 +412,8 @@ class GitEvo:
                 date_unit: str = 'year', 
                 since_year: int | None = None,
                 title: str = 'GitEvo report',
-                html_filename = 'index.html'):
+                html_filename: str = 'index.html',
+                last_version_only: bool = False):
                         
         self.project_repos = self._check_valid_git_projects(repo)
         
@@ -422,6 +430,7 @@ class GitEvo:
         self.since_year = since_year
         self.title = title.strip()
         self.html_filename = html_filename.strip()
+        self.last_version_only = last_version_only
 
         self.registered_metrics: list[MetricInfo] = []
         self.registered_before_commits: list[BeforeCommitInfo] = []
@@ -479,7 +488,8 @@ class GitEvo:
                categorical: bool = False, 
                aggregate: str = 'sum',
                group: str | None = None,
-               version_chart: str = 'bar',
+               version_chart_type: str = 'bar',
+               show_version_chart: bool = True,
                top_n: int | None = None):
         
         def decorator(func):
@@ -490,7 +500,8 @@ class GitEvo:
                            categorical=categorical,
                            aggregate=aggregate,
                            group=group,
-                           version_chart=version_chart,
+                           version_chart_type=version_chart_type,
+                           show_version_chart=show_version_chart,
                            top_n=top_n))
             return func
         
@@ -516,7 +527,7 @@ class GitEvo:
     def _compute_metrics(self) -> Result:
 
         # Sanity checks on registered_metrics
-        result = Result(self.title, self.html_filename, self.date_unit, self.registered_metrics)
+        result = Result(self.title, self.html_filename, self.date_unit, self.registered_metrics, self.last_version_only)
         for metric_info in self.registered_metrics:
 
             if self.global_file_extension is None and metric_info.file_extension is None:
@@ -525,8 +536,8 @@ class GitEvo:
             if metric_info.aggregate not in ['median', 'mean', 'mode', 'sum', 'max', 'min']:
                 raise BadAggregate(f'aggregate in metric {metric_info.name} should be median, mean, mode, sum, max, or min, not {metric_info.aggregate}')
             
-            if metric_info.version_chart not in ['donut', 'pie', 'bar', 'hbar']:
-                raise BadVersionChart(f'version chart in {metric_info.name} should be donut, pie, bar, or hbar, not {metric_info.version_chart}')
+            if metric_info.version_chart_type not in ['donut', 'pie', 'bar', 'hbar']:
+                raise BadVersionChart(f'version chart in {metric_info.name} should be donut, pie, bar, or hbar, not {metric_info.version_chart_type}')
             
             if metric_info.file_extension is None:
                 metric_info.file_extension = self.global_file_extension
@@ -538,6 +549,10 @@ class GitEvo:
         project_name = ''
         project_commits = set()
 
+        last_commit_hash = None
+        if self.last_version_only:
+            last_commit_hash = self._repo.lastest_commit.hash
+
         for commit in self._repo.commits:
             
             # Create new project result if new project name
@@ -547,17 +562,24 @@ class GitEvo:
                 project_commits = set()
                 project_result = ProjectResult(commit.project_name)
                 result.add_project_result(project_result)
-            
-            # Skip commit based on since_year
-            if self.since_year and commit.committer_date.year < self.since_year:
-                continue
-            
-            # Skip commit if year or month is already analyzed
-            commit_year = commit.committer_date.year
-            selected_date = (commit_year, commit.committer_date.month) if self.date_unit == 'month' else commit_year
-            if selected_date in project_commits:
-                continue
-            project_commits.add(selected_date)
+
+            if not self.last_version_only:
+                # Skip commit based on since_year
+                if self.since_year and commit.committer_date.year < self.since_year:
+                    continue
+                
+                # Skip commit if year or month is already analyzed
+                commit_year = commit.committer_date.year
+                selected_date = (commit_year, commit.committer_date.month) if self.date_unit == 'month' else commit_year
+                if selected_date in project_commits:
+                    continue
+
+                project_commits.add(selected_date)
+            else:
+                # Skip commit based on last_commit_hash
+                if last_commit_hash != commit.hash:
+                    continue
+                selected_date = commit.committer_date
 
             # Chache parsed commits for each file extension, eg, .py, .js, .java, etc
             parsed_commits = ParsedCommits(commit, self._all_file_extensions())
@@ -584,6 +606,10 @@ class GitEvo:
 
                     if not isinstance(metric_value, list):
                         raise BadReturnType(f'categorical metric {metric_info.name} should return list[str]')
+
+                    if not metric_value:
+                        continue
+                        # raise BadReturnType(f'categorical metric {metric_info.name} should return list[str], not an empty list')
 
                     for real_name, value in Counter(metric_value).most_common():
                         assert isinstance(real_name, str), f'categorical metric {metric_info.name} should return return list[str]'
@@ -708,10 +734,9 @@ class Chart:
         self.title = title
         self.metric_dates = metric_dates
 
-        self.group_evolution_original = sorted(group_evolution, key=lambda metric: metric.values[-1], reverse=True)
-        self.group_evolution = self.group_evolution_original
+        self.group_evolution = sorted(group_evolution, key=lambda metric: metric.values[-1], reverse=True)
         if top_n is not None:
-            self.group_evolution = self.group_evolution_original[0:top_n]
+            self.group_evolution = self.group_evolution[0:top_n]
 
     @property
     def is_single_metric(self):
@@ -734,7 +759,7 @@ class Chart:
     def version_dict(self, chart_type: str) -> dict:
 
         lastest_date = self.metric_dates[-1]
-        title = f'{self.title} in {lastest_date} (%)'
+        title = f'{self.title} - {lastest_date}'
         indexAxis = 'x'
 
         # doughnut is the actual name is Chart.js
@@ -769,12 +794,9 @@ class Chart:
     
     def _version_dataset(self) -> list:
         # Get the most recent metric values (this year) 
-        total = sum([metric.values[-1] for metric in self.group_evolution_original])
-        if total == 0:
-            return []
-        ratios = [round(metric.values[-1]/total*100, 0) for metric in self.group_evolution]
+        values = [metric.values[-1] for metric in self.group_evolution]
         
-        return [{'data': ratios,
+        return [{'data': values,
                  'backgroundColor': self.background_colors}]
 
 
@@ -790,15 +812,16 @@ class HtmlReport:
         self.html_filename = result.html_filename
         self.metric_dates = result.metric_dates
         self.metric_groups = result.metric_groups
-        self.metric_version_charts = result.metric_version_charts
+        self.metric_version_chart_types = result.metric_version_chart_types
+        self.metric_show_version_charts = result.metric_show_version_charts
         self.metric_tops_n = result.metric_tops_n
         self.metric_evolutions = result.metric_evolutions()
+        self.last_version_only = result.last_version_only
 
     def generate_html(self) -> str:
         json_data = self._json_data()
         template = self._read_template()
         content = self._replace_json_data(template, json_data)
-        # content = self._replace_title(content, 'Python syntax and features')
         content = self._replace_title(content, self.title)
         content = self._replace_created_date(content)
         self._write_html(content)
@@ -809,22 +832,40 @@ class HtmlReport:
 
     def _build_charts(self) -> list[dict]:
         charts = []
+        print('Exported charts:')
         for group_name, metric_names in self.metric_groups.items():
             assert group_name in self.metric_tops_n
+            
             group_evolution = self._find_metric_evolutions(metric_names)
+            if not group_evolution:
+                print(f'- Empty data (chart is omitted): {group_name}')
+                continue
+
             top_n = self.metric_tops_n[group_name]
             
-            # Build evolution chart
+            # Build chart
             evo_chart = Chart(group_name, self.metric_dates, group_evolution, top_n)
-            
-            if len(self.metric_dates) >= 2:
-                charts.append(evo_chart.evo_dict())
+            evo_msg, version_msg = '', ''
 
-            # Build version chart if there are multiple metrics in evo chart
-            if evo_chart.is_multi_metrics:
-                assert group_name in self.metric_version_charts
-                version_chart = self.metric_version_charts[group_name]
-                charts.append(evo_chart.version_dict(version_chart))
+            if len(self.metric_dates) >= 2 and not self.last_version_only:
+                charts.append(evo_chart.evo_dict())
+                evo_msg = 'evolution'
+
+            # Build last version chart
+            assert group_name in self.metric_version_chart_types
+            assert group_name in self.metric_show_version_charts
+            
+            version_chart_type = self.metric_version_chart_types[group_name]
+            show_version_chart = self.metric_show_version_charts[group_name]
+            if show_version_chart:
+                charts.append(evo_chart.version_dict(version_chart_type))
+                version_msg = 'version'
+            
+            if evo_msg and version_msg: msg = f'{evo_msg} and {version_msg} charts'
+            elif evo_msg: msg = f'{evo_msg} chart'
+            elif version_msg: msg = f'{version_msg} chart'
+            else: msg = 'no chart'
+            print(f'- OK: {group_name} -> {msg}')
 
         return charts
             

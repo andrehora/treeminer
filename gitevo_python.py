@@ -6,12 +6,12 @@ def as_str(text: bytes) -> str:
     return text.decode('utf-8')
 
 evo = GitEvo(title='Python', html_filename='index_python.html', 
-             repo='./projects_python', extension='.py', 
-             date_unit='year', since_year=2020)
+             repo='./projects_python/rich', extension='.py', 
+             date_unit='year', since_year=2020, last_version_only=False)
 # evo.add_language('.py', tree_sitter_python.language())
 
 
-@evo.metric('Analyzed Python files', aggregate='sum')
+@evo.metric('Analyzed Python files', aggregate='sum', show_version_chart=False)
 def files(commit: ParsedCommit):
     return len(commit.parsed_files)
 
@@ -63,26 +63,26 @@ def definitions(commit: ParsedCommit):
     return classmethods + staticmethods
 
 
-@evo.metric('Functions: def vs. async def', categorical=True, aggregate='sum', version_chart='donut')
+@evo.metric('Functions: def vs. async def', categorical=True, aggregate='sum', version_chart_type='donut')
 def sync_async(commit: ParsedCommit):
     function_definitions = commit.find_nodes_by_type(['function_definition'])
     return ['async def' if as_str(func.child(0).text) == 'async' else 'def' for func in function_definitions]
 
 
-@evo.metric('Functions: return types', categorical=True, aggregate='sum', version_chart='donut')
+@evo.metric('Functions: return types', categorical=True, aggregate='sum', version_chart_type='donut')
 def return_types(commit: ParsedCommit):
     function_definitions = commit.find_nodes_by_type(['function_definition'])
     return ['return_type' if func.child_by_field_name('return_type') else 'no return_type' for func in function_definitions]
 
 
-@evo.metric('Functions: parameter types', categorical=True, aggregate='sum', version_chart='hbar', top_n=5)
+@evo.metric('Functions: parameter types', categorical=True, aggregate='sum', version_chart_type='hbar', top_n=5)
 def parameter_types(commit: ParsedCommit):
     function_definitions = commit.find_nodes_by_type(['function_definition'])
     func_def_parameters = [func.child_by_field_name('parameters') for func in function_definitions if func.child_by_field_name('parameters')]
     return [named_param.type for parameters in func_def_parameters for named_param in commit.named_children(parameters)]
 
 
-@evo.metric('Import statements', categorical=True, version_chart='donut')
+@evo.metric('Import statements', categorical=True, version_chart_type='donut')
 def imports(commit: ParsedCommit):
     return commit.node_types(['import_statement', 'import_from_statement', 'future_import_statement'])
 
@@ -107,7 +107,7 @@ def conditionals(commit: ParsedCommit):
     return commit.node_types(['if_statement', 'conditional_expression'])
 
 
-@evo.metric('Loops', aggregate='sum', categorical=True, version_chart='donut')
+@evo.metric('Loops', aggregate='sum', categorical=True, version_chart_type='donut')
 def for_while(commit: ParsedCommit):
     return commit.node_types(['for_statement', 'while_statement', 'for_in_clause'])
 
@@ -117,12 +117,12 @@ def continue_break(commit: ParsedCommit):
     return commit.node_types(['break_statement', 'continue_statement'])
 
 
-@evo.metric('integer vs. float', aggregate='sum', categorical=True, version_chart='donut')
+@evo.metric('integer vs. float', aggregate='sum', categorical=True, version_chart_type='donut')
 def int_float(commit: ParsedCommit):
     return commit.node_types(['integer', 'float'])
 
 
-@evo.metric('return vs. yield', aggregate='sum', categorical=True, version_chart='donut')
+@evo.metric('return vs. yield', aggregate='sum', categorical=True, version_chart_type='donut')
 def return_yield(commit: ParsedCommit):
     return commit.node_types(['return_statement', 'yield'])
 

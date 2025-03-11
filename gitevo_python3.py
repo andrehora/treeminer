@@ -11,10 +11,9 @@ def ratio(a: int, b: int) -> int:
     return round(a/b, 3)
 
 evo = GitEvo(title='Python', html_filename='index_python.html', 
-             repo='./projects_python', extension='.py', 
+             repo='./projects_python/rich', extension='.py', 
              date_unit='year', since_year=2015)
 # evo.add_language('.py', tree_sitter_python.language())
-
 
 
 @evo.metric('Python files', aggregate='sum')
