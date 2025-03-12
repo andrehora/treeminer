@@ -411,7 +411,7 @@ class GitEvo:
                 extension: str | None = None, 
                 date_unit: str = 'year', 
                 since_year: int | None = None,
-                title: str = 'GitEvo report',
+                title: str = 'GitEvo',
                 html_filename: str = 'index.html',
                 last_version_only: bool = False):
                         
