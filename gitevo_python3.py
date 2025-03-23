@@ -10,17 +10,19 @@ def ratio(a: int, b: int) -> int:
         return 0
     return round(a/b, 3)
 
+KLOC_FACTOR = 1000
+
 evo = GitEvo(title='Python', html_filename='index_python.html', 
-             repo='./projects_python/rich', extension='.py', 
-             date_unit='year', since_year=2015)
+             repo='./projects_python/cli', extension='.py', 
+             date_unit='year', from_year=2015)
 # evo.add_language('.py', tree_sitter_python.language())
 
 
-@evo.metric('Python files', aggregate='sum')
+@evo.metric('Python files', aggregate='sum', show_version_chart=False)
 def files(commit: ParsedCommit):
     return len(commit.parsed_files)
 
-@evo.metric('LOC', aggregate='sum')
+@evo.metric('LOC', aggregate='sum', show_version_chart=False)
 def files(commit: ParsedCommit):
     return commit.loc
 
@@ -39,13 +41,13 @@ def namedtuple(commit: ParsedCommit):
 @evo.metric('dataclass', aggregate='median', group='dataclass vs. namedtuple')
 def dataclass(commit: ParsedCommit):
     dataclass_count = _dataclass_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(dataclass_count, total)
 
 @evo.metric('namedtuple', aggregate='median', group='dataclass vs. namedtuple')
 def namedtuple(commit: ParsedCommit):
     namedtuple_count = _namedtuple_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(namedtuple_count, total)
 
 def _dataclass_count(commit: ParsedCommit):
@@ -76,13 +78,13 @@ def data_structures(commit: ParsedCommit):
 @evo.metric('list', aggregate='median', group='list vs. tuple')
 def data_structures(commit: ParsedCommit):
     list_count = commit.count_nodes(['list'])
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(list_count, total)
 
 @evo.metric('tuple', aggregate='median', group='list vs. tuple')
 def data_structures(commit: ParsedCommit):
     tuple_count = commit.count_nodes(['tuple'])
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(tuple_count, total)
 
 
@@ -100,13 +102,13 @@ def data_structures(commit: ParsedCommit):
 @evo.metric('list comprehension', aggregate='median', group='list comprehension vs. generator expression')
 def data_structures(commit: ParsedCommit):
     list_comp_count = commit.count_nodes(['list_comprehension'])
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(list_comp_count, total)
 
 @evo.metric('generator expression', aggregate='median', group='list comprehension vs. generator expression')
 def data_structures(commit: ParsedCommit):
     gen_exp_count = commit.count_nodes(['generator_expression'])
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(gen_exp_count, total)
 
 
@@ -124,13 +126,13 @@ def rep(commit: ParsedCommit):
 @evo.metric('__str__', aggregate='median', group='__str__ vs. __repr__')
 def str(commit: ParsedCommit):
     str_count = _str_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(str_count, total)
 
 @evo.metric('__repr__', aggregate='median', group='__str__ vs. __repr__')
 def repr(commit: ParsedCommit):
     repr_count = _repr_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(repr_count, total)
 
 def _str_count(commit: ParsedCommit):
@@ -160,14 +162,14 @@ def imports(commit: ParsedCommit):
 def imports(commit: ParsedCommit):
     getattr_count = _getattr_count(commit)
     getattribute_count = _getattribute_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(getattr_count, total)
 
 @evo.metric('__getattribute__', aggregate='median', group='__getattr__ vs. __getattribute__')
 def imports(commit: ParsedCommit):
     getattr_count = _getattr_count(commit)
     getattribute_count = _getattribute_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(getattribute_count, total)
 
 def _getattr_count(commit: ParsedCommit):
@@ -192,14 +194,14 @@ def definitions(commit: ParsedCommit):
 def definitions(commit: ParsedCommit):
     classmethod_count = _classmethod_count(commit)
     staticmethod_count = _staticmethod_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(classmethod_count, total)
 
 @evo.metric('@staticmethod', aggregate='median', group='@classmethod vs. @staticmethod')
 def definitions(commit: ParsedCommit):
     classmethod_count = _classmethod_count(commit)
     staticmethod_count = _staticmethod_count(commit)
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(staticmethod_count, total)
 
 def _classmethod_count(commit: ParsedCommit):
@@ -227,13 +229,13 @@ def data_structures(commit: ParsedCommit):
 @evo.metric('import', aggregate='median', group='import vs. import from')
 def imports(commit: ParsedCommit):
     import_count = commit.count_nodes(['import_statement'])
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(import_count, total)
 
 @evo.metric('import from', aggregate='median', group='import vs. import from')
 def imports(commit: ParsedCommit):
     import_from_count = commit.count_nodes(['import_from_statement'])
-    total = commit.loc / 1000
+    total = commit.loc / KLOC_FACTOR
     return ratio(import_from_count, total)
 
 evo.run()

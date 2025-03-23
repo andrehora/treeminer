@@ -8,7 +8,7 @@ from collections import Counter
 
 from tree_sitter import Node
 from git.repo.fun import is_git_dir
-from treeminer.repo import Repo, Commit
+from treeminer.repo import Repo as TreeMinerRepo, Commit
 from treeminer.miners import BaseMiner
 
 
@@ -56,19 +56,19 @@ class DateUtil:
         return [date(year, cls.MONTH, 1) for year in dates]
 
     @classmethod
-    def _generate_months(cls, start_date: date, end_date: date) -> list[date]:
+    def _generate_months(cls, start_date: date, end_date: date, step: int = 1) -> list[date]:
         start_month = start_date.month
         start_year = start_date.year
         end_month = end_date.month
         end_year = end_date.year
 
         if start_year == end_year:
-            dates = [(month, start_year) for month in range(start_month, end_month + 1)]
+            dates = [(month, start_year) for month in range(start_month, end_month + 1, step)]
             return cls._convert_tuples_to_dates(dates)
 
-        start_year_months = [(month, start_year) for month in range(start_month, 13)]
-        middle_years_months = [(month, year) for year in range(start_year + 1, end_year) for month in range(1, 13)]
-        end_year_months = [(month, end_year) for month in range(1, end_month + 1)]
+        start_year_months = [(month, start_year) for month in range(start_month, 13, step)]
+        middle_years_months = [(month, year) for year in range(start_year + 1, end_year) for month in range(1, 13, step)]
+        end_year_months = [(month, end_year) for month in range(1, end_month + 1, step)]
 
         return cls._convert_tuples_to_dates(start_year_months + middle_years_months + end_year_months)
 
@@ -201,6 +201,7 @@ class ParsedCommit:
                 return target_node
         return None
 
+
 class MetricEvolution:
 
     def __init__(self, name: str, dates: list[str], values: list):
@@ -270,8 +271,9 @@ class ProjectResult:
     
     def date_steps(self) -> list[date]:
         first_commit_date = self.commit_results[0].date
-        today_date = date.today()
-        return DateUtil.dates_by_unit(first_commit_date, today_date)
+        last_commit_date = self.commit_results[-1].date
+        # last_commit_date = date.today()
+        return DateUtil.dates_by_unit(first_commit_date, last_commit_date)
     
     def _metric_results(self, metric_name: str) -> list[MetricResult]:
         metric_results = []
@@ -281,7 +283,7 @@ class ProjectResult:
                     metric_results.append(metric_result)
         return metric_results
 
-class Result:
+class GitEvoResult:
 
     def __init__(self, title: str, html_filename: str, date_unit: str, registered_metrics: list[MetricInfo], last_version_only: bool):
         self.title = title
@@ -291,11 +293,11 @@ class Result:
         DateUtil.date_unit = date_unit
 
         self.project_results: list[ProjectResult] = []
-        self.metrics_data = MetricsData()
+        self._metrics_data = MetricsData()
 
     @property
     def metric_names(self) -> list[str]:
-        return self.metrics_data.names
+        return self._metrics_data.names
     
     @property
     def metric_dates(self) -> list[str]:
@@ -303,7 +305,7 @@ class Result:
     
     @property
     def metric_groups(self):
-        return self.metrics_data._groups_and_names
+        return self._metrics_data._groups_and_names
     
     @property
     def metric_version_chart_types(self) -> dict[str, str]:
@@ -318,17 +320,17 @@ class Result:
         return {metric_info.group: metric_info.top_n for metric_info in self.registered_metrics}
     
     def add_metric_aggregate(self, name: str, aggregate: str):
-        self.metrics_data.add_metric_aggregate(name, aggregate)
+        self._metrics_data.add_metric_aggregate(name, aggregate)
 
     def add_metric_group(self, name: str | None, group: str):
-        self.metrics_data.add_metric_group(name, group)
+        self._metrics_data.add_metric_group(name, group)
 
     def add_project_result(self, project_result: ProjectResult):
         self.project_results.append(project_result)
     
     def metric_evolutions(self) -> list[MetricEvolution]:
         metric_evolutions = []
-        for metric_name, metric_agg in self.metrics_data.names_and_aggregates:
+        for metric_name, metric_agg in self._metrics_data.names_and_aggregates:
             metric_evo = self._metric_evolution(metric_name, metric_agg)
             metric_evolutions.append(metric_evo)
         return metric_evolutions
@@ -410,7 +412,8 @@ class GitEvo:
                 repo: str | list[str],
                 extension: str | None = None, 
                 date_unit: str = 'year', 
-                since_year: int | None = None,
+                from_year: int | None = None,
+                to_year: int | None = None,
                 title: str = 'GitEvo',
                 html_filename: str = 'index.html',
                 last_version_only: bool = False):
@@ -418,16 +421,21 @@ class GitEvo:
         self.project_repos = self._check_valid_git_projects(repo)
         
         if date_unit not in ['year', 'month']:
-            raise BadDateUnit(f'date_unit must be year or month, not {date_unit}')
+            raise BadDateUnit(f'date_unit must be year or month')
         
-        if since_year is None:
-            since_year = date.today().year - 5
-        if since_year > date.today().year:
-            raise BadSinceYear(f'since_year must be at most {date.today().year}')
+        if from_year is None:
+            from_year = date.today().year - 5
+
+        if to_year is None:
+            to_year = date.today().year
+
+        if from_year > to_year:
+            raise BadYearRange(f'from_year must be equal or smaller than to_year')
 
         self.global_file_extension = extension
         self.date_unit = date_unit
-        self.since_year = since_year
+        self.from_year = from_year
+        self.to_year = to_year
         self.title = title.strip()
         self.html_filename = html_filename.strip()
         self.last_version_only = last_version_only
@@ -436,7 +444,7 @@ class GitEvo:
         self.registered_before_commits: list[BeforeCommitInfo] = []
 
         self._analyzed_commits: list[str] = []
-        self._repo = Repo(self.project_repos)
+        self._repo = TreeMinerRepo(self.project_repos)
 
     def add_language(self, extension: str, tree_sitter_language: object):
         miner = GenericMiner
@@ -447,17 +455,27 @@ class GitEvo:
     def _check_valid_git_projects(self, repo: str | list[str]) -> str | list[str]:
 
         if not repo or repo is None:
-            raise BadGitRepo(f'project_path is not a git repository')
+            raise BadGitRepo('Invalid repository')
 
         # project_path is str
         if isinstance(repo, str):
-            if self._is_git_remote(repo) or self._is_git_dir(repo):
+            # Project_path is remote
+            if self._is_git_remote(repo):
                 return repo
             else:
+                # Project_path is local dir
+
+                if not os.path.isdir(repo):
+                    raise BadGitRepo(f'{repo} is not a directory')
+                
+                # Check if project_path is a git dir
+                if self._is_git_dir(repo):
+                    return repo
+
                 # Check if project_path is a dir with git projects
                 paths = self._projects_dir(repo)
                 if not paths:
-                    raise BadGitRepo(f'{repo} is not a dir with git repositories')
+                    raise BadGitRepo(f'{repo} is not a directory with git repositories')
                 for path in paths:
                     if not self._is_git_dir(path):
                         raise BadGitRepo(f'{path} is not a git repository')
@@ -470,7 +488,7 @@ class GitEvo:
                     raise BadGitRepo(f'{path} is not a git repository')
             return repo
         
-        raise BadGitRepo(f'Invalid project_path')
+        raise BadGitRepo('Invalid repository')
     
     def _is_git_dir(self, project_path):
         git_path = os.path.join(project_path, '.git')
@@ -516,18 +534,17 @@ class GitEvo:
         
         return decorator
     
-    def run(self) -> Result:
+    def run(self) -> GitEvoResult:
         print(f'Running GitEvo...')
-        # print(f'Git projects: {len(self.projects)}')
         result = self._compute_metrics()
         html_link = result.as_html()
         print(f'HTML report generated at {html_link}')
         return result
     
-    def _compute_metrics(self) -> Result:
+    def _compute_metrics(self) -> GitEvoResult:
 
         # Sanity checks on registered_metrics
-        result = Result(self.title, self.html_filename, self.date_unit, self.registered_metrics, self.last_version_only)
+        result = GitEvoResult(self.title, self.html_filename, self.date_unit, self.registered_metrics, self.last_version_only)
         for metric_info in self.registered_metrics:
 
             if self.global_file_extension is None and metric_info.file_extension is None:
@@ -564,8 +581,10 @@ class GitEvo:
                 result.add_project_result(project_result)
 
             if not self.last_version_only:
-                # Skip commit based on since_year
-                if self.since_year and commit.committer_date.year < self.since_year:
+                # Skip commit based on from and to year 
+                if commit.committer_date.year < self.from_year:
+                    continue
+                if commit.committer_date.year > self.to_year:
                     continue
                 
                 # Skip commit if year or month is already analyzed
@@ -691,14 +710,14 @@ class BadGitRepo(Exception):
 class BadVersionChart(Exception):
     pass
 
-class BadSinceYear(Exception):
+class BadYearRange(Exception):
     pass
 
 class TableReport:
 
     DATE_COLUMN_NAME = 'date'
     
-    def __init__(self, result: Result):
+    def __init__(self, result: GitEvoResult):
         self.metric_names = result.metric_names
         self.metric_dates = result.metric_dates
         self.evolutions = result.metric_evolutions()
@@ -807,7 +826,7 @@ class HtmlReport:
     TITLE_PLACEHOLDER = '{{TITLE}}'
     CREATED_DATE_PLACEHOLDER = '{{CREATED_DATE}}'
 
-    def __init__(self, result: Result):
+    def __init__(self, result: GitEvoResult):
         self.title = result.title
         self.html_filename = result.html_filename
         self.metric_dates = result.metric_dates

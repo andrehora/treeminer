@@ -5,7 +5,7 @@ def as_str(text: bytes) -> str:
 
 evo = GitEvo(title='TypeScript', html_filename='index_ts.html', 
              repo='./projects_typescript', extension='.ts',
-             date_unit='year', since_year=2020)
+             date_unit='year', from_year=2020)
 
 
 @evo.metric('Analyzed TypeScript files', aggregate='sum')

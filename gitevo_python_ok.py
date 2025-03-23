@@ -1,6 +1,7 @@
 from gitevo import GitEvo, ParsedCommit
 
-evo = GitEvo(repo='projects_python/scikit-learn', extension='.py')
+
+evo = GitEvo(repo='projects_python/testrepo', extension='.py', html_filename='index_python.html', from_year=2020, date_unit='month')
 
 
 @evo.metric('Lines of code (LOC)', show_version_chart=False)
@@ -117,11 +118,6 @@ def exceptions(commit: ParsedCommit):
 @evo.metric('Data structures', categorical=True)
 def data_structures(commit: ParsedCommit):
     return commit.node_types(['dictionary', 'list', 'set', 'tuple'])
-
-
-@evo.metric('Ints and floats', categorical=True)
-def int_float(commit: ParsedCommit):
-    return commit.node_types(['integer', 'float'])
 
 
 @evo.metric('Comprehensions', categorical=True)

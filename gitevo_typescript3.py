@@ -9,16 +9,16 @@ def ratio(a: int, b: int) -> int:
     return round(a/b, 2)
 
 evo = GitEvo(title='TypeScript', html_filename='index_ts.html', 
-             repo='./projects_typescript', extension='.ts',
-             date_unit='year', since_year=2015)
+             repo='./projects_typescript/playwright', extension='.ts',
+             date_unit='year', from_year=2015)
 
 
 
-@evo.metric('TypeScript files', aggregate='sum')
+@evo.metric('TypeScript files', aggregate='sum', show_version_chart=False)
 def files(commit: ParsedCommit):
     return len(commit.parsed_files)
 
-@evo.metric('LOC', aggregate='sum')
+@evo.metric('LOC', aggregate='sum', show_version_chart=False)
 def files(commit: ParsedCommit):
     return commit.loc
 

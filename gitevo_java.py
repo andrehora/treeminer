@@ -5,7 +5,7 @@ def as_str(text: bytes) -> str:
 
 evo = GitEvo(title='Java', html_filename='index_java.html', 
              repo='./projects_java', extension='.java',
-             date_unit='year', since_year=2020)
+             date_unit='year', from_year=2020)
 
 
 @evo.metric('Analyzed Java files', aggregate='sum')

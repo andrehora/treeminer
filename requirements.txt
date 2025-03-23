@@ -6,3 +6,4 @@ tree-sitter-javascript
 tree-sitter-typescript
 tree-sitter-java
 pytest
+pytest-cov
