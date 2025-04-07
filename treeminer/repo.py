@@ -6,7 +6,7 @@ from abc import abstractmethod
 
 from git import Blob as GitBlob
 
-from pydriller import Repository as PydrillerRepository, Git as PydrillerGit
+from pydriller import Repository as PydrillerRepository
 from pydriller.domain.commit import Commit as PydrillerCommit, ModifiedFile as PydrillerModifiedFile
 
 from tree_sitter import Language, Parser, Node, Tree
@@ -240,7 +240,7 @@ class Commit:
         return None
 
 
-class Repo(PydrillerRepository):
+class TreeMinerRepo(PydrillerRepository):
 
     def __init__(self, path_to_repo: str, 
                 single: str = None,

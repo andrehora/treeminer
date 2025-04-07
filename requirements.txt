@@ -1,6 +1,6 @@
+gitpython==3.1.44
+pydriller==2.7
 tree-sitter
-gitpython
-pydriller
 tree-sitter-python
 tree-sitter-javascript
 tree-sitter-typescript
