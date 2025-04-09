@@ -11,7 +11,7 @@ authors = [
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.9"
-version = "0.1"
+dynamic = ["version"]
 dependencies = [
     "gitpython==3.1.44",
     "pydriller==2.7",
