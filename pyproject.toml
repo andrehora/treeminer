@@ -4,6 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "treeminer"
+version = "0.1.0"
 description = "Multi-language and extensible library for mining Git repositories"
 authors = [
   { name="Andre Hora", email="andrehoraa@gmail.com" },
