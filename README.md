@@ -2,4 +2,4 @@
 
 # TreeMiner :deciduous_tree: :pick:
 
-Multi-Language and Extensible Tool for Mining Git Repositories
+Multi-language and extensible tool for mining Git repositories
